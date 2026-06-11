@@ -1,0 +1,840 @@
+§30 ablation mode: reward weights overridden = {'w_progress': 50.0, 'w_time_pressure': 0.0, 'w_spin': 0.0, 'w_no_progress': 0.0, 'w_no_progress_soft': 0.0, 'w_timeout': 0.0, 'success_reward': 800.0, 'w_danger': 0.0, 'w_close': 0.0}
+§30b ablation: VecNormalize norm_reward=True clip_reward=10.0 (production 동일 조건)
+Using cpu device
+=== Training start ===
+n_envs=8, total_timesteps=4000000, n_steps=2048, batch_size=256, clip_range=0.2, target_kl=0.1, n_epochs=10
+Periodic eval: freq=1000000 runs=100 obstacles=[0, 5, 10] save_best=True
+Logging to /home/dev/PX4-Autopilot/rl/logs_ppo_2d/ablation/C2_seed123/PPO_1
+[episodes=500] reached=29 (5.80%) collision=471 (94.20%) no_progress=0 (0.00%) timeout=0 (0.00%)
+[AdaptiveEnt] entropy_loss=1.151 > -0.6 → ent_coef ↑ 0.03 (cooldown=10)
+[episodes=1000] reached=82 (8.20%) collision=918 (91.80%) no_progress=0 (0.00%) timeout=0 (0.00%)
+[episodes=1500] reached=175 (11.67%) collision=1311 (87.40%) no_progress=13 (0.87%) timeout=1 (0.07%)
+[episodes=2000] reached=406 (20.30%) collision=1565 (78.25%) no_progress=27 (1.35%) timeout=2 (0.10%)
+[episodes=2500] reached=735 (29.40%) collision=1733 (69.32%) no_progress=29 (1.16%) timeout=3 (0.12%)
+------------------------------------------
+| debug/                  |              |
+|    adv_mean             | 0.304        |
+|    q_est_mean           | 2.11         |
+|    v_mean               | 1.81         |
+| rollout/                |              |
+|    ep_len_mean          | 69.5         |
+|    ep_rew_mean          | 953          |
+| time/                   |              |
+|    fps                  | 1241         |
+|    iterations           | 10           |
+|    time_elapsed         | 132          |
+|    total_timesteps      | 163840       |
+| train/                  |              |
+|    approx_kl            | 0.0067733377 |
+|    clip_fraction        | 0.0821       |
+|    clip_range           | 0.2          |
+|    entropy_loss         | 1.01         |
+|    explained_variance   | 0.884        |
+|    learning_rate        | 0.0001       |
+|    loss                 | 0.0669       |
+|    n_updates            | 90           |
+|    policy_gradient_loss | -0.0112      |
+|    std                  | 0.146        |
+|    value_loss           | 0.184        |
+------------------------------------------
+[episodes=3000] reached=1115 (37.17%) collision=1852 (61.73%) no_progress=30 (1.00%) timeout=3 (0.10%)
+[episodes=3500] reached=1508 (43.09%) collision=1958 (55.94%) no_progress=31 (0.89%) timeout=3 (0.09%)
+[episodes=4000] reached=1920 (48.00%) collision=2046 (51.15%) no_progress=31 (0.78%) timeout=3 (0.07%)
+[episodes=4500] reached=2338 (51.96%) collision=2128 (47.29%) no_progress=31 (0.69%) timeout=3 (0.07%)
+[episodes=5000] reached=2764 (55.28%) collision=2202 (44.04%) no_progress=31 (0.62%) timeout=3 (0.06%)
+-----------------------------------------
+| debug/                  |             |
+|    adv_mean             | 0.0422      |
+|    q_est_mean           | 3.03        |
+|    v_mean               | 2.99        |
+| rollout/                |             |
+|    ep_len_mean          | 59.9        |
+|    ep_rew_mean          | 1.07e+03    |
+| time/                   |             |
+|    fps                  | 1235        |
+|    iterations           | 20          |
+|    time_elapsed         | 265         |
+|    total_timesteps      | 327680      |
+| train/                  |             |
+|    approx_kl            | 0.006642821 |
+|    clip_fraction        | 0.0637      |
+|    clip_range           | 0.2         |
+|    entropy_loss         | 0.837       |
+|    explained_variance   | 0.853       |
+|    learning_rate        | 0.0001      |
+|    loss                 | 0.0298      |
+|    n_updates            | 190         |
+|    policy_gradient_loss | -0.00824    |
+|    std                  | 0.161       |
+|    value_loss           | 0.0674      |
+-----------------------------------------
+[episodes=5500] reached=3200 (58.18%) collision=2266 (41.20%) no_progress=31 (0.56%) timeout=3 (0.05%)
+[episodes=6000] reached=3615 (60.25%) collision=2351 (39.18%) no_progress=31 (0.52%) timeout=3 (0.05%)
+[episodes=6500] reached=4003 (61.58%) collision=2463 (37.89%) no_progress=31 (0.48%) timeout=3 (0.05%)
+[episodes=7000] reached=4343 (62.04%) collision=2623 (37.47%) no_progress=31 (0.44%) timeout=3 (0.04%)
+[episodes=7500] reached=4640 (61.87%) collision=2824 (37.65%) no_progress=33 (0.44%) timeout=3 (0.04%)
+------------------------------------------
+| debug/                  |              |
+|    adv_mean             | -0.00284     |
+|    q_est_mean           | 2.4          |
+|    v_mean               | 2.4          |
+| rollout/                |              |
+|    ep_len_mean          | 61           |
+|    ep_rew_mean          | 842          |
+| time/                   |              |
+|    fps                  | 1200         |
+|    iterations           | 30           |
+|    time_elapsed         | 409          |
+|    total_timesteps      | 491520       |
+| train/                  |              |
+|    approx_kl            | 0.0068608127 |
+|    clip_fraction        | 0.0562       |
+|    clip_range           | 0.2          |
+|    entropy_loss         | 0.587        |
+|    explained_variance   | 0.803        |
+|    learning_rate        | 0.0001       |
+|    loss                 | 0.0814       |
+|    n_updates            | 290          |
+|    policy_gradient_loss | -0.00898     |
+|    std                  | 0.181        |
+|    value_loss           | 0.266        |
+------------------------------------------
+[episodes=8000] reached=4947 (61.84%) collision=3017 (37.71%) no_progress=33 (0.41%) timeout=3 (0.04%)
+[episodes=8500] reached=5263 (61.92%) collision=3200 (37.65%) no_progress=33 (0.39%) timeout=4 (0.05%)
+[episodes=9000] reached=5581 (62.01%) collision=3377 (37.52%) no_progress=37 (0.41%) timeout=5 (0.06%)
+[episodes=9500] reached=5900 (62.11%) collision=3555 (37.42%) no_progress=40 (0.42%) timeout=5 (0.05%)
+[episodes=10000] reached=6241 (62.41%) collision=3711 (37.11%) no_progress=43 (0.43%) timeout=5 (0.05%)
+-----------------------------------------
+| debug/                  |             |
+|    adv_mean             | -0.0129     |
+|    q_est_mean           | 2.46        |
+|    v_mean               | 2.47        |
+| rollout/                |             |
+|    ep_len_mean          | 56.4        |
+|    ep_rew_mean          | 790         |
+| time/                   |             |
+|    fps                  | 1169        |
+|    iterations           | 40          |
+|    time_elapsed         | 560         |
+|    total_timesteps      | 655360      |
+| train/                  |             |
+|    approx_kl            | 0.006591546 |
+|    clip_fraction        | 0.0538      |
+|    clip_range           | 0.2         |
+|    entropy_loss         | 0.369       |
+|    explained_variance   | 0.803       |
+|    learning_rate        | 0.0001      |
+|    loss                 | 0.0561      |
+|    n_updates            | 390         |
+|    policy_gradient_loss | -0.00902    |
+|    std                  | 0.203       |
+|    value_loss           | 0.2         |
+-----------------------------------------
+[episodes=10500] reached=6594 (62.80%) collision=3857 (36.73%) no_progress=44 (0.42%) timeout=5 (0.05%)
+[episodes=11000] reached=6939 (63.08%) collision=4006 (36.42%) no_progress=49 (0.45%) timeout=6 (0.05%)
+[episodes=11500] reached=7297 (63.45%) collision=4140 (36.00%) no_progress=57 (0.50%) timeout=6 (0.05%)
+[episodes=12000] reached=7660 (63.83%) collision=4270 (35.58%) no_progress=64 (0.53%) timeout=6 (0.05%)
+[episodes=12500] reached=8033 (64.26%) collision=4387 (35.10%) no_progress=74 (0.59%) timeout=6 (0.05%)
+------------------------------------------
+| debug/                  |              |
+|    adv_mean             | -0.000208    |
+|    q_est_mean           | 2.61         |
+|    v_mean               | 2.61         |
+| rollout/                |              |
+|    ep_len_mean          | 69.6         |
+|    ep_rew_mean          | 1.13e+03     |
+| time/                   |              |
+|    fps                  | 1156         |
+|    iterations           | 50           |
+|    time_elapsed         | 708          |
+|    total_timesteps      | 819200       |
+| train/                  |              |
+|    approx_kl            | 0.0065645757 |
+|    clip_fraction        | 0.0596       |
+|    clip_range           | 0.2          |
+|    entropy_loss         | 0.129        |
+|    explained_variance   | 0.776        |
+|    learning_rate        | 0.0001       |
+|    loss                 | 0.0492       |
+|    n_updates            | 490          |
+|    policy_gradient_loss | -0.00991     |
+|    std                  | 0.229        |
+|    value_loss           | 0.204        |
+------------------------------------------
+[episodes=13001] reached=8420 (64.76%) collision=4490 (34.54%) no_progress=84 (0.65%) timeout=7 (0.05%)
+[episodes=13501] reached=8798 (65.17%) collision=4606 (34.12%) no_progress=90 (0.67%) timeout=7 (0.05%)
+[episodes=14001] reached=9179 (65.56%) collision=4712 (33.65%) no_progress=103 (0.74%) timeout=7 (0.05%)
+[episodes=14501] reached=9591 (66.14%) collision=4796 (33.07%) no_progress=107 (0.74%) timeout=7 (0.05%)
+[episodes=15001] reached=9990 (66.60%) collision=4889 (32.59%) no_progress=115 (0.77%) timeout=7 (0.05%)
+------------------------------------------
+| debug/                  |              |
+|    adv_mean             | 0.00756      |
+|    q_est_mean           | 2.72         |
+|    v_mean               | 2.71         |
+| rollout/                |              |
+|    ep_len_mean          | 70.2         |
+|    ep_rew_mean          | 1.08e+03     |
+| time/                   |              |
+|    fps                  | 1147         |
+|    iterations           | 60           |
+|    time_elapsed         | 856          |
+|    total_timesteps      | 983040       |
+| train/                  |              |
+|    approx_kl            | 0.0067815487 |
+|    clip_fraction        | 0.061        |
+|    clip_range           | 0.2          |
+|    entropy_loss         | -0.138       |
+|    explained_variance   | 0.758        |
+|    learning_rate        | 0.0001       |
+|    loss                 | 0.0705       |
+|    n_updates            | 590          |
+|    policy_gradient_loss | -0.00923     |
+|    std                  | 0.262        |
+|    value_loss           | 0.195        |
+------------------------------------------
+[t=1000000] [Eval obs=0] success=100/100 (100.00%) collision=0 (0.00%) no_progress=0 (0.00%) timeout=0 (0.00%) avg_steps=57.0 avg_dist=18.61
+[t=1000000] [Eval obs=5] success=89/100 (89.00%) collision=11 (11.00%) no_progress=0 (0.00%) timeout=0 (0.00%) avg_steps=55.7 avg_dist=18.24
+[t=1000000] [Eval obs=10] success=92/100 (92.00%) collision=8 (8.00%) no_progress=0 (0.00%) timeout=0 (0.00%) avg_steps=68.8 avg_dist=21.01
+[t=1000000] [Eval obstacle_density_15] success=69/100 (69.00%) collision=31 (31.00%) no_progress=0 (0.00%) timeout=0 (0.00%) avg_steps=68.8 avg_dist=21.44
+[t=1000000] [Eval obstacle_density_20] success=56/100 (56.00%) collision=43 (43.00%) no_progress=1 (1.00%) timeout=0 (0.00%) avg_steps=68.1 avg_dist=20.83
+[t=1000000] [Eval narrow_passage] success=98/100 (98.00%) collision=2 (2.00%) no_progress=0 (0.00%) timeout=0 (0.00%) avg_steps=85.5 avg_dist=23.03
+[t=1000000] [Eval course_l_s] success=36/100 (36.00%) collision=24 (24.00%) no_progress=37 (37.00%) timeout=3 (3.00%) avg_steps=119.1 avg_dist=26.63
+[t=1000000] ✅ New best weighted_score=0.7089 -> saved: /home/dev/PX4-Autopilot/rl/models_ppo_2d/ablation/C2_seed123/best_model.zip
+[episodes=15501] reached=10385 (67.00%) collision=4982 (32.14%) no_progress=127 (0.82%) timeout=7 (0.05%)
+[episodes=16001] reached=10768 (67.30%) collision=5084 (31.77%) no_progress=138 (0.86%) timeout=11 (0.07%)
+[episodes=16501] reached=11175 (67.72%) collision=5163 (31.29%) no_progress=152 (0.92%) timeout=11 (0.07%)
+[episodes=17001] reached=11591 (68.18%) collision=5236 (30.80%) no_progress=161 (0.95%) timeout=13 (0.08%)
+-----------------------------------------------------
+| debug/                              |             |
+|    adv_mean                         | -0.00652    |
+|    q_est_mean                       | 2.77        |
+|    v_mean                           | 2.78        |
+| eval/                               |             |
+|    course_l_s_success_rate          | 0.36        |
+|    mean_success_rate                | 0.771       |
+|    narrow_passage_success_rate      | 0.98        |
+|    obs_0_collision_rate             | 0           |
+|    obs_0_success_rate               | 1           |
+|    obs_10_collision_rate            | 0.08        |
+|    obs_10_success_rate              | 0.92        |
+|    obs_5_collision_rate             | 0.11        |
+|    obs_5_success_rate               | 0.89        |
+|    obstacle_density_15_success_rate | 0.69        |
+|    obstacle_density_20_success_rate | 0.56        |
+|    weighted_score                   | 0.709       |
+| rollout/                            |             |
+|    ep_len_mean                      | 77.9        |
+|    ep_rew_mean                      | 1.16e+03    |
+| time/                               |             |
+|    fps                              | 1073        |
+|    iterations                       | 70          |
+|    time_elapsed                     | 1068        |
+|    total_timesteps                  | 1146880     |
+| train/                              |             |
+|    approx_kl                        | 0.006637673 |
+|    clip_fraction                    | 0.0625      |
+|    clip_range                       | 0.2         |
+|    entropy_loss                     | -0.383      |
+|    explained_variance               | 0.685       |
+|    learning_rate                    | 0.0001      |
+|    loss                             | 0.045       |
+|    n_updates                        | 690         |
+|    policy_gradient_loss             | -0.00938    |
+|    std                              | 0.295       |
+|    value_loss                       | 0.201       |
+-----------------------------------------------------
+[episodes=17501] reached=12018 (68.67%) collision=5299 (30.28%) no_progress=170 (0.97%) timeout=14 (0.08%)
+[episodes=18001] reached=12456 (69.20%) collision=5360 (29.78%) no_progress=171 (0.95%) timeout=14 (0.08%)
+[episodes=18501] reached=12882 (69.63%) collision=5431 (29.36%) no_progress=174 (0.94%) timeout=14 (0.08%)
+[episodes=19001] reached=13316 (70.08%) collision=5496 (28.92%) no_progress=175 (0.92%) timeout=14 (0.07%)
+[episodes=19501] reached=13750 (70.51%) collision=5561 (28.52%) no_progress=175 (0.90%) timeout=15 (0.08%)
+------------------------------------------
+| debug/                  |              |
+|    adv_mean             | 0.00245      |
+|    q_est_mean           | 3.2          |
+|    v_mean               | 3.2          |
+| rollout/                |              |
+|    ep_len_mean          | 72.5         |
+|    ep_rew_mean          | 1.29e+03     |
+| time/                   |              |
+|    fps                  | 1076         |
+|    iterations           | 80           |
+|    time_elapsed         | 1217         |
+|    total_timesteps      | 1310720      |
+| train/                  |              |
+|    approx_kl            | 0.0071674455 |
+|    clip_fraction        | 0.0568       |
+|    clip_range           | 0.2          |
+|    entropy_loss         | -0.649       |
+|    explained_variance   | 0.66         |
+|    learning_rate        | 0.0001       |
+|    loss                 | 0.0226       |
+|    n_updates            | 790          |
+|    policy_gradient_loss | -0.01        |
+|    std                  | 0.339        |
+|    value_loss           | 0.163        |
+------------------------------------------
+[episodes=20001] reached=14200 (71.00%) collision=5609 (28.04%) no_progress=177 (0.88%) timeout=15 (0.07%)
+[episodes=20501] reached=14648 (71.45%) collision=5658 (27.60%) no_progress=180 (0.88%) timeout=15 (0.07%)
+[episodes=21001] reached=15089 (71.85%) collision=5717 (27.22%) no_progress=180 (0.86%) timeout=15 (0.07%)
+[episodes=21501] reached=15538 (72.27%) collision=5764 (26.81%) no_progress=184 (0.86%) timeout=15 (0.07%)
+[episodes=22001] reached=15970 (72.59%) collision=5827 (26.49%) no_progress=188 (0.85%) timeout=16 (0.07%)
+-----------------------------------------
+| debug/                  |             |
+|    adv_mean             | -0.0517     |
+|    q_est_mean           | 3.09        |
+|    v_mean               | 3.14        |
+| rollout/                |             |
+|    ep_len_mean          | 72.9        |
+|    ep_rew_mean          | 1.31e+03    |
+| time/                   |             |
+|    fps                  | 1077        |
+|    iterations           | 90          |
+|    time_elapsed         | 1368        |
+|    total_timesteps      | 1474560     |
+| train/                  |             |
+|    approx_kl            | 0.006257364 |
+|    clip_fraction        | 0.0546      |
+|    clip_range           | 0.2         |
+|    entropy_loss         | -0.893      |
+|    explained_variance   | 0.555       |
+|    learning_rate        | 0.0001      |
+|    loss                 | 0.0353      |
+|    n_updates            | 890         |
+|    policy_gradient_loss | -0.00981    |
+|    std                  | 0.382       |
+|    value_loss           | 0.178       |
+-----------------------------------------
+[AdaptiveEnt] entropy_loss=-0.921 < -0.9 → ent_coef ↓ 0.01 (cooldown=10)
+[episodes=22501] reached=16402 (72.89%) collision=5894 (26.19%) no_progress=189 (0.84%) timeout=16 (0.07%)
+[episodes=23001] reached=16851 (73.26%) collision=5944 (25.84%) no_progress=190 (0.83%) timeout=16 (0.07%)
+[episodes=23501] reached=17286 (73.55%) collision=6008 (25.56%) no_progress=190 (0.81%) timeout=17 (0.07%)
+[episodes=24001] reached=17704 (73.76%) collision=6085 (25.35%) no_progress=195 (0.81%) timeout=17 (0.07%)
+------------------------------------------
+| debug/                  |              |
+|    adv_mean             | 0.0187       |
+|    q_est_mean           | 2.96         |
+|    v_mean               | 2.95         |
+| rollout/                |              |
+|    ep_len_mean          | 76.4         |
+|    ep_rew_mean          | 1.33e+03     |
+| time/                   |              |
+|    fps                  | 1076         |
+|    iterations           | 100          |
+|    time_elapsed         | 1522         |
+|    total_timesteps      | 1638400      |
+| train/                  |              |
+|    approx_kl            | 0.0058792857 |
+|    clip_fraction        | 0.0498       |
+|    clip_range           | 0.2          |
+|    entropy_loss         | -0.97        |
+|    explained_variance   | 0.579        |
+|    learning_rate        | 0.0001       |
+|    loss                 | 0.03         |
+|    n_updates            | 990          |
+|    policy_gradient_loss | -0.0096      |
+|    std                  | 0.396        |
+|    value_loss           | 0.203        |
+------------------------------------------
+[episodes=24501] reached=18137 (74.03%) collision=6146 (25.08%) no_progress=198 (0.81%) timeout=20 (0.08%)
+[episodes=25001] reached=18569 (74.27%) collision=6212 (24.85%) no_progress=199 (0.80%) timeout=21 (0.08%)
+[episodes=25501] reached=19007 (74.53%) collision=6269 (24.58%) no_progress=202 (0.79%) timeout=23 (0.09%)
+[episodes=26001] reached=19438 (74.76%) collision=6335 (24.36%) no_progress=205 (0.79%) timeout=23 (0.09%)
+[episodes=26501] reached=19874 (74.99%) collision=6394 (24.13%) no_progress=209 (0.79%) timeout=24 (0.09%)
+-----------------------------------------
+| debug/                  |             |
+|    adv_mean             | -0.0172     |
+|    q_est_mean           | 3.11        |
+|    v_mean               | 3.12        |
+| rollout/                |             |
+|    ep_len_mean          | 72.2        |
+|    ep_rew_mean          | 1.39e+03    |
+| time/                   |             |
+|    fps                  | 1075        |
+|    iterations           | 110         |
+|    time_elapsed         | 1675        |
+|    total_timesteps      | 1802240     |
+| train/                  |             |
+|    approx_kl            | 0.007011329 |
+|    clip_fraction        | 0.0622      |
+|    clip_range           | 0.2         |
+|    entropy_loss         | -0.971      |
+|    explained_variance   | 0.583       |
+|    learning_rate        | 0.0001      |
+|    loss                 | 0.0286      |
+|    n_updates            | 1090        |
+|    policy_gradient_loss | -0.0104     |
+|    std                  | 0.396       |
+|    value_loss           | 0.194       |
+-----------------------------------------
+[episodes=27001] reached=20312 (75.23%) collision=6452 (23.90%) no_progress=213 (0.79%) timeout=24 (0.09%)
+[episodes=27501] reached=20748 (75.44%) collision=6515 (23.69%) no_progress=214 (0.78%) timeout=24 (0.09%)
+[episodes=28001] reached=21177 (75.63%) collision=6585 (23.52%) no_progress=215 (0.77%) timeout=24 (0.09%)
+[episodes=28501] reached=21618 (75.85%) collision=6643 (23.31%) no_progress=216 (0.76%) timeout=24 (0.08%)
+[episodes=29001] reached=22055 (76.05%) collision=6705 (23.12%) no_progress=217 (0.75%) timeout=24 (0.08%)
+------------------------------------------
+| debug/                  |              |
+|    adv_mean             | -0.000493    |
+|    q_est_mean           | 3.2          |
+|    v_mean               | 3.2          |
+| rollout/                |              |
+|    ep_len_mean          | 65           |
+|    ep_rew_mean          | 1.28e+03     |
+| time/                   |              |
+|    fps                  | 1075         |
+|    iterations           | 120          |
+|    time_elapsed         | 1828         |
+|    total_timesteps      | 1966080      |
+| train/                  |              |
+|    approx_kl            | 0.0071034767 |
+|    clip_fraction        | 0.0648       |
+|    clip_range           | 0.2          |
+|    entropy_loss         | -1.03        |
+|    explained_variance   | 0.646        |
+|    learning_rate        | 0.0001       |
+|    loss                 | 0.0211       |
+|    n_updates            | 1190         |
+|    policy_gradient_loss | -0.0106      |
+|    std                  | 0.412        |
+|    value_loss           | 0.179        |
+------------------------------------------
+[episodes=29501] reached=22487 (76.22%) collision=6772 (22.96%) no_progress=218 (0.74%) timeout=24 (0.08%)
+[t=2000000] [Eval obs=0] success=99/100 (99.00%) collision=1 (1.00%) no_progress=0 (0.00%) timeout=0 (0.00%) avg_steps=51.1 avg_dist=20.29
+[t=2000000] [Eval obs=5] success=90/100 (90.00%) collision=10 (10.00%) no_progress=0 (0.00%) timeout=0 (0.00%) avg_steps=47.0 avg_dist=18.73
+[t=2000000] [Eval obs=10] success=91/100 (91.00%) collision=9 (9.00%) no_progress=0 (0.00%) timeout=0 (0.00%) avg_steps=47.4 avg_dist=18.81
+[t=2000000] [Eval obstacle_density_15] success=88/100 (88.00%) collision=12 (12.00%) no_progress=0 (0.00%) timeout=0 (0.00%) avg_steps=69.1 avg_dist=22.58
+[t=2000000] [Eval obstacle_density_20] success=75/100 (75.00%) collision=25 (25.00%) no_progress=0 (0.00%) timeout=0 (0.00%) avg_steps=69.6 avg_dist=21.99
+[t=2000000] [Eval narrow_passage] success=98/100 (98.00%) collision=2 (2.00%) no_progress=0 (0.00%) timeout=0 (0.00%) avg_steps=65.2 avg_dist=22.38
+[t=2000000] [Eval course_l_s] success=99/100 (99.00%) collision=1 (1.00%) no_progress=0 (0.00%) timeout=0 (0.00%) avg_steps=59.2 avg_dist=17.47
+[t=2000000] ✅ New best weighted_score=0.9013 -> saved: /home/dev/PX4-Autopilot/rl/models_ppo_2d/ablation/C2_seed123/best_model.zip
+[episodes=30001] reached=22926 (76.42%) collision=6831 (22.77%) no_progress=220 (0.73%) timeout=24 (0.08%)
+[episodes=30501] reached=23358 (76.58%) collision=6895 (22.61%) no_progress=224 (0.73%) timeout=24 (0.08%)
+[episodes=31001] reached=23796 (76.76%) collision=6956 (22.44%) no_progress=225 (0.73%) timeout=24 (0.08%)
+-----------------------------------------------------
+| debug/                              |             |
+|    adv_mean                         | -0.0587     |
+|    q_est_mean                       | 3.06        |
+|    v_mean                           | 3.12        |
+| eval/                               |             |
+|    course_l_s_success_rate          | 0.99        |
+|    mean_success_rate                | 0.914       |
+|    narrow_passage_success_rate      | 0.98        |
+|    obs_0_collision_rate             | 0.01        |
+|    obs_0_success_rate               | 0.99        |
+|    obs_10_collision_rate            | 0.09        |
+|    obs_10_success_rate              | 0.91        |
+|    obs_5_collision_rate             | 0.1         |
+|    obs_5_success_rate               | 0.9         |
+|    obstacle_density_15_success_rate | 0.88        |
+|    obstacle_density_20_success_rate | 0.75        |
+|    weighted_score                   | 0.901       |
+| rollout/                            |             |
+|    ep_len_mean                      | 67.3        |
+|    ep_rew_mean                      | 1.28e+03    |
+| time/                               |             |
+|    fps                              | 1048        |
+|    iterations                       | 130         |
+|    time_elapsed                     | 2031        |
+|    total_timesteps                  | 2129920     |
+| train/                              |             |
+|    approx_kl                        | 0.006670067 |
+|    clip_fraction                    | 0.057       |
+|    clip_range                       | 0.2         |
+|    entropy_loss                     | -1.08       |
+|    explained_variance               | 0.564       |
+|    learning_rate                    | 0.0001      |
+|    loss                             | 0.0986      |
+|    n_updates                        | 1290        |
+|    policy_gradient_loss             | -0.00902    |
+|    std                              | 0.42        |
+|    value_loss                       | 0.182       |
+-----------------------------------------------------
+[episodes=31501] reached=24237 (76.94%) collision=7013 (22.26%) no_progress=227 (0.72%) timeout=24 (0.08%)
+[episodes=32001] reached=24677 (77.11%) collision=7072 (22.10%) no_progress=228 (0.71%) timeout=24 (0.07%)
+[episodes=32501] reached=25122 (77.30%) collision=7126 (21.93%) no_progress=228 (0.70%) timeout=25 (0.08%)
+[episodes=33001] reached=25559 (77.45%) collision=7187 (21.78%) no_progress=230 (0.70%) timeout=25 (0.08%)
+[episodes=33501] reached=26001 (77.61%) collision=7241 (21.61%) no_progress=234 (0.70%) timeout=25 (0.07%)
+-----------------------------------------
+| debug/                  |             |
+|    adv_mean             | -0.00517    |
+|    q_est_mean           | 3.14        |
+|    v_mean               | 3.15        |
+| rollout/                |             |
+|    ep_len_mean          | 65.8        |
+|    ep_rew_mean          | 1.3e+03     |
+| time/                   |             |
+|    fps                  | 1047        |
+|    iterations           | 140         |
+|    time_elapsed         | 2190        |
+|    total_timesteps      | 2293760     |
+| train/                  |             |
+|    approx_kl            | 0.007006484 |
+|    clip_fraction        | 0.0662      |
+|    clip_range           | 0.2         |
+|    entropy_loss         | -1.12       |
+|    explained_variance   | 0.577       |
+|    learning_rate        | 0.0001      |
+|    loss                 | 0.0338      |
+|    n_updates            | 1390        |
+|    policy_gradient_loss | -0.0108     |
+|    std                  | 0.43        |
+|    value_loss           | 0.193       |
+-----------------------------------------
+[episodes=34002] reached=26451 (77.79%) collision=7291 (21.44%) no_progress=235 (0.69%) timeout=25 (0.07%)
+[episodes=34502] reached=26900 (77.97%) collision=7342 (21.28%) no_progress=235 (0.68%) timeout=25 (0.07%)
+[episodes=35002] reached=27352 (78.14%) collision=7388 (21.11%) no_progress=236 (0.67%) timeout=26 (0.07%)
+[episodes=35502] reached=27799 (78.30%) collision=7440 (20.96%) no_progress=237 (0.67%) timeout=26 (0.07%)
+[episodes=36002] reached=28241 (78.44%) collision=7495 (20.82%) no_progress=240 (0.67%) timeout=26 (0.07%)
+-----------------------------------------
+| debug/                  |             |
+|    adv_mean             | 0.00333     |
+|    q_est_mean           | 3.21        |
+|    v_mean               | 3.21        |
+| rollout/                |             |
+|    ep_len_mean          | 64          |
+|    ep_rew_mean          | 1.28e+03    |
+| time/                   |             |
+|    fps                  | 1045        |
+|    iterations           | 150         |
+|    time_elapsed         | 2351        |
+|    total_timesteps      | 2457600     |
+| train/                  |             |
+|    approx_kl            | 0.007907675 |
+|    clip_fraction        | 0.0732      |
+|    clip_range           | 0.2         |
+|    entropy_loss         | -1.19       |
+|    explained_variance   | 0.57        |
+|    learning_rate        | 0.0001      |
+|    loss                 | 0.0383      |
+|    n_updates            | 1490        |
+|    policy_gradient_loss | -0.0123     |
+|    std                  | 0.443       |
+|    value_loss           | 0.177       |
+-----------------------------------------
+[episodes=36502] reached=28686 (78.59%) collision=7548 (20.68%) no_progress=242 (0.66%) timeout=26 (0.07%)
+[episodes=37002] reached=29133 (78.73%) collision=7599 (20.54%) no_progress=244 (0.66%) timeout=26 (0.07%)
+[episodes=37502] reached=29597 (78.92%) collision=7635 (20.36%) no_progress=244 (0.65%) timeout=26 (0.07%)
+[episodes=38002] reached=30046 (79.06%) collision=7685 (20.22%) no_progress=245 (0.64%) timeout=26 (0.07%)
+[episodes=38502] reached=30504 (79.23%) collision=7725 (20.06%) no_progress=247 (0.64%) timeout=26 (0.07%)
+-----------------------------------------
+| debug/                  |             |
+|    adv_mean             | -0.022      |
+|    q_est_mean           | 3.34        |
+|    v_mean               | 3.36        |
+| rollout/                |             |
+|    ep_len_mean          | 70.7        |
+|    ep_rew_mean          | 1.38e+03    |
+| time/                   |             |
+|    fps                  | 1044        |
+|    iterations           | 160         |
+|    time_elapsed         | 2508        |
+|    total_timesteps      | 2621440     |
+| train/                  |             |
+|    approx_kl            | 0.006758349 |
+|    clip_fraction        | 0.0613      |
+|    clip_range           | 0.2         |
+|    entropy_loss         | -1.2        |
+|    explained_variance   | 0.601       |
+|    learning_rate        | 0.0001      |
+|    loss                 | 0.0253      |
+|    n_updates            | 1590        |
+|    policy_gradient_loss | -0.00978    |
+|    std                  | 0.446       |
+|    value_loss           | 0.163       |
+-----------------------------------------
+[episodes=39002] reached=30961 (79.38%) collision=7767 (19.91%) no_progress=248 (0.64%) timeout=26 (0.07%)
+[episodes=39502] reached=31417 (79.53%) collision=7809 (19.77%) no_progress=250 (0.63%) timeout=26 (0.07%)
+[episodes=40002] reached=31861 (79.65%) collision=7864 (19.66%) no_progress=251 (0.63%) timeout=26 (0.06%)
+[episodes=40502] reached=32317 (79.79%) collision=7907 (19.52%) no_progress=252 (0.62%) timeout=26 (0.06%)
+[episodes=41002] reached=32786 (79.96%) collision=7938 (19.36%) no_progress=252 (0.61%) timeout=26 (0.06%)
+-----------------------------------------
+| debug/                  |             |
+|    adv_mean             | -0.00317    |
+|    q_est_mean           | 3.34        |
+|    v_mean               | 3.35        |
+| rollout/                |             |
+|    ep_len_mean          | 70.5        |
+|    ep_rew_mean          | 1.42e+03    |
+| time/                   |             |
+|    fps                  | 1043        |
+|    iterations           | 170         |
+|    time_elapsed         | 2670        |
+|    total_timesteps      | 2785280     |
+| train/                  |             |
+|    approx_kl            | 0.007673776 |
+|    clip_fraction        | 0.0715      |
+|    clip_range           | 0.2         |
+|    entropy_loss         | -1.27       |
+|    explained_variance   | 0.502       |
+|    learning_rate        | 0.0001      |
+|    loss                 | 0.00686     |
+|    n_updates            | 1690        |
+|    policy_gradient_loss | -0.0115     |
+|    std                  | 0.461       |
+|    value_loss           | 0.154       |
+-----------------------------------------
+[episodes=41502] reached=33243 (80.10%) collision=7980 (19.23%) no_progress=252 (0.61%) timeout=27 (0.07%)
+[episodes=42002] reached=33701 (80.24%) collision=8020 (19.09%) no_progress=254 (0.60%) timeout=27 (0.06%)
+[episodes=42502] reached=34160 (80.37%) collision=8059 (18.96%) no_progress=256 (0.60%) timeout=27 (0.06%)
+[episodes=43002] reached=34624 (80.52%) collision=8092 (18.82%) no_progress=259 (0.60%) timeout=27 (0.06%)
+[episodes=43502] reached=35090 (80.66%) collision=8126 (18.68%) no_progress=259 (0.60%) timeout=27 (0.06%)
+------------------------------------------
+| debug/                  |              |
+|    adv_mean             | -0.0512      |
+|    q_est_mean           | 3.31         |
+|    v_mean               | 3.36         |
+| rollout/                |              |
+|    ep_len_mean          | 62.4         |
+|    ep_rew_mean          | 1.34e+03     |
+| time/                   |              |
+|    fps                  | 1041         |
+|    iterations           | 180          |
+|    time_elapsed         | 2831         |
+|    total_timesteps      | 2949120      |
+| train/                  |              |
+|    approx_kl            | 0.0076469476 |
+|    clip_fraction        | 0.0705       |
+|    clip_range           | 0.2          |
+|    entropy_loss         | -1.32        |
+|    explained_variance   | 0.585        |
+|    learning_rate        | 0.0001       |
+|    loss                 | 0.022        |
+|    n_updates            | 1790         |
+|    policy_gradient_loss | -0.00964     |
+|    std                  | 0.473        |
+|    value_loss           | 0.14         |
+------------------------------------------
+[episodes=44002] reached=35545 (80.78%) collision=8170 (18.57%) no_progress=259 (0.59%) timeout=28 (0.06%)
+[episodes=44502] reached=36014 (80.93%) collision=8200 (18.43%) no_progress=259 (0.58%) timeout=29 (0.07%)
+[t=3000000] [Eval obs=0] success=99/100 (99.00%) collision=0 (0.00%) no_progress=1 (1.00%) timeout=0 (0.00%) avg_steps=52.3 avg_dist=20.48
+[t=3000000] [Eval obs=5] success=99/100 (99.00%) collision=1 (1.00%) no_progress=0 (0.00%) timeout=0 (0.00%) avg_steps=48.8 avg_dist=20.14
+[t=3000000] [Eval obs=10] success=96/100 (96.00%) collision=4 (4.00%) no_progress=0 (0.00%) timeout=0 (0.00%) avg_steps=42.4 avg_dist=18.32
+[t=3000000] [Eval obstacle_density_15] success=84/100 (84.00%) collision=16 (16.00%) no_progress=0 (0.00%) timeout=0 (0.00%) avg_steps=60.8 avg_dist=22.49
+[t=3000000] [Eval obstacle_density_20] success=80/100 (80.00%) collision=19 (19.00%) no_progress=1 (1.00%) timeout=0 (0.00%) avg_steps=68.7 avg_dist=24.36
+[t=3000000] [Eval narrow_passage] success=100/100 (100.00%) collision=0 (0.00%) no_progress=0 (0.00%) timeout=0 (0.00%) avg_steps=63.7 avg_dist=23.53
+[t=3000000] [Eval course_l_s] success=97/100 (97.00%) collision=3 (3.00%) no_progress=0 (0.00%) timeout=0 (0.00%) avg_steps=55.4 avg_dist=18.54
+[t=3000000] ✅ New best weighted_score=0.9142 -> saved: /home/dev/PX4-Autopilot/rl/models_ppo_2d/ablation/C2_seed123/best_model.zip
+[episodes=45002] reached=36462 (81.02%) collision=8252 (18.34%) no_progress=259 (0.58%) timeout=29 (0.06%)
+[episodes=45502] reached=36914 (81.13%) collision=8299 (18.24%) no_progress=260 (0.57%) timeout=29 (0.06%)
+[episodes=46002] reached=37378 (81.25%) collision=8335 (18.12%) no_progress=260 (0.57%) timeout=29 (0.06%)
+-----------------------------------------------------
+| debug/                              |             |
+|    adv_mean                         | -0.0153     |
+|    q_est_mean                       | 3.3         |
+|    v_mean                           | 3.31        |
+| eval/                               |             |
+|    course_l_s_success_rate          | 0.97        |
+|    mean_success_rate                | 0.936       |
+|    narrow_passage_success_rate      | 1           |
+|    obs_0_collision_rate             | 0           |
+|    obs_0_success_rate               | 0.99        |
+|    obs_10_collision_rate            | 0.04        |
+|    obs_10_success_rate              | 0.96        |
+|    obs_5_collision_rate             | 0.01        |
+|    obs_5_success_rate               | 0.99        |
+|    obstacle_density_15_success_rate | 0.84        |
+|    obstacle_density_20_success_rate | 0.8         |
+|    weighted_score                   | 0.914       |
+| rollout/                            |             |
+|    ep_len_mean                      | 66.3        |
+|    ep_rew_mean                      | 1.43e+03    |
+| time/                               |             |
+|    fps                              | 1025        |
+|    iterations                       | 190         |
+|    time_elapsed                     | 3036        |
+|    total_timesteps                  | 3112960     |
+| train/                              |             |
+|    approx_kl                        | 0.008140398 |
+|    clip_fraction                    | 0.0754      |
+|    clip_range                       | 0.2         |
+|    entropy_loss                     | -1.38       |
+|    explained_variance               | 0.573       |
+|    learning_rate                    | 0.0001      |
+|    loss                             | 0.0245      |
+|    n_updates                        | 1890        |
+|    policy_gradient_loss             | -0.012      |
+|    std                              | 0.488       |
+|    value_loss                       | 0.151       |
+-----------------------------------------------------
+[episodes=46502] reached=37834 (81.36%) collision=8378 (18.02%) no_progress=261 (0.56%) timeout=29 (0.06%)
+[episodes=47002] reached=38299 (81.48%) collision=8412 (17.90%) no_progress=262 (0.56%) timeout=29 (0.06%)
+[episodes=47502] reached=38759 (81.59%) collision=8450 (17.79%) no_progress=264 (0.56%) timeout=29 (0.06%)
+[episodes=48002] reached=39212 (81.69%) collision=8495 (17.70%) no_progress=266 (0.55%) timeout=29 (0.06%)
+[episodes=48502] reached=39668 (81.79%) collision=8537 (17.60%) no_progress=268 (0.55%) timeout=29 (0.06%)
+------------------------------------------
+| debug/                  |              |
+|    adv_mean             | 0.00749      |
+|    q_est_mean           | 3.29         |
+|    v_mean               | 3.28         |
+| rollout/                |              |
+|    ep_len_mean          | 66.9         |
+|    ep_rew_mean          | 1.43e+03     |
+| time/                   |              |
+|    fps                  | 1025         |
+|    iterations           | 200          |
+|    time_elapsed         | 3194         |
+|    total_timesteps      | 3276800      |
+| train/                  |              |
+|    approx_kl            | 0.0068611186 |
+|    clip_fraction        | 0.0593       |
+|    clip_range           | 0.2          |
+|    entropy_loss         | -1.47        |
+|    explained_variance   | 0.578        |
+|    learning_rate        | 0.0001       |
+|    loss                 | 0.0214       |
+|    n_updates            | 1990         |
+|    policy_gradient_loss | -0.0106      |
+|    std                  | 0.51         |
+|    value_loss           | 0.143        |
+------------------------------------------
+[episodes=49002] reached=40137 (81.91%) collision=8563 (17.47%) no_progress=270 (0.55%) timeout=32 (0.07%)
+[episodes=49502] reached=40600 (82.02%) collision=8597 (17.37%) no_progress=273 (0.55%) timeout=32 (0.06%)
+[episodes=50002] reached=41061 (82.12%) collision=8635 (17.27%) no_progress=274 (0.55%) timeout=32 (0.06%)
+[episodes=50502] reached=41509 (82.19%) collision=8682 (17.19%) no_progress=278 (0.55%) timeout=33 (0.07%)
+[episodes=51002] reached=41968 (82.29%) collision=8720 (17.10%) no_progress=281 (0.55%) timeout=33 (0.06%)
+-----------------------------------------
+| debug/                  |             |
+|    adv_mean             | -0.0399     |
+|    q_est_mean           | 3.24        |
+|    v_mean               | 3.28        |
+| rollout/                |             |
+|    ep_len_mean          | 69.8        |
+|    ep_rew_mean          | 1.42e+03    |
+| time/                   |             |
+|    fps                  | 1026        |
+|    iterations           | 210         |
+|    time_elapsed         | 3351        |
+|    total_timesteps      | 3440640     |
+| train/                  |             |
+|    approx_kl            | 0.006921225 |
+|    clip_fraction        | 0.0578      |
+|    clip_range           | 0.2         |
+|    entropy_loss         | -1.53       |
+|    explained_variance   | 0.582       |
+|    learning_rate        | 0.0001      |
+|    loss                 | 0.0141      |
+|    n_updates            | 2090        |
+|    policy_gradient_loss | -0.00964    |
+|    std                  | 0.526       |
+|    value_loss           | 0.159       |
+-----------------------------------------
+[episodes=51502] reached=42417 (82.36%) collision=8768 (17.02%) no_progress=284 (0.55%) timeout=33 (0.06%)
+[episodes=52002] reached=42883 (82.46%) collision=8798 (16.92%) no_progress=287 (0.55%) timeout=34 (0.07%)
+[episodes=52502] reached=43335 (82.54%) collision=8842 (16.84%) no_progress=291 (0.55%) timeout=34 (0.06%)
+[episodes=53002] reached=43787 (82.61%) collision=8881 (16.76%) no_progress=300 (0.57%) timeout=34 (0.06%)
+[episodes=53502] reached=44241 (82.69%) collision=8924 (16.68%) no_progress=303 (0.57%) timeout=34 (0.06%)
+-----------------------------------------
+| debug/                  |             |
+|    adv_mean             | 0.0198      |
+|    q_est_mean           | 3.19        |
+|    v_mean               | 3.17        |
+| rollout/                |             |
+|    ep_len_mean          | 68.4        |
+|    ep_rew_mean          | 1.46e+03    |
+| time/                   |             |
+|    fps                  | 1027        |
+|    iterations           | 220         |
+|    time_elapsed         | 3508        |
+|    total_timesteps      | 3604480     |
+| train/                  |             |
+|    approx_kl            | 0.007358644 |
+|    clip_fraction        | 0.0616      |
+|    clip_range           | 0.2         |
+|    entropy_loss         | -1.53       |
+|    explained_variance   | 0.584       |
+|    learning_rate        | 0.0001      |
+|    loss                 | 0.0495      |
+|    n_updates            | 2190        |
+|    policy_gradient_loss | -0.0109     |
+|    std                  | 0.525       |
+|    value_loss           | 0.184       |
+-----------------------------------------
+[episodes=54002] reached=44688 (82.75%) collision=8974 (16.62%) no_progress=306 (0.57%) timeout=34 (0.06%)
+[episodes=54502] reached=45130 (82.80%) collision=9024 (16.56%) no_progress=313 (0.57%) timeout=35 (0.06%)
+[episodes=55002] reached=45574 (82.86%) collision=9077 (16.50%) no_progress=316 (0.57%) timeout=35 (0.06%)
+[episodes=55502] reached=46005 (82.89%) collision=9139 (16.47%) no_progress=321 (0.58%) timeout=37 (0.07%)
+[episodes=56002] reached=46444 (82.93%) collision=9194 (16.42%) no_progress=325 (0.58%) timeout=39 (0.07%)
+-----------------------------------------
+| debug/                  |             |
+|    adv_mean             | -0.0403     |
+|    q_est_mean           | 2.95        |
+|    v_mean               | 2.99        |
+| rollout/                |             |
+|    ep_len_mean          | 75.6        |
+|    ep_rew_mean          | 1.35e+03    |
+| time/                   |             |
+|    fps                  | 1027        |
+|    iterations           | 230         |
+|    time_elapsed         | 3667        |
+|    total_timesteps      | 3768320     |
+| train/                  |             |
+|    approx_kl            | 0.008368727 |
+|    clip_fraction        | 0.0744      |
+|    clip_range           | 0.2         |
+|    entropy_loss         | -1.54       |
+|    explained_variance   | 0.623       |
+|    learning_rate        | 0.0001      |
+|    loss                 | 0.0339      |
+|    n_updates            | 2290        |
+|    policy_gradient_loss | -0.0116     |
+|    std                  | 0.527       |
+|    value_loss           | 0.241       |
+-----------------------------------------
+[episodes=56502] reached=46866 (82.95%) collision=9265 (16.40%) no_progress=332 (0.59%) timeout=39 (0.07%)
+[episodes=57002] reached=47302 (82.98%) collision=9320 (16.35%) no_progress=339 (0.59%) timeout=41 (0.07%)
+[episodes=57502] reached=47731 (83.01%) collision=9380 (16.31%) no_progress=349 (0.61%) timeout=42 (0.07%)
+[episodes=58002] reached=48164 (83.04%) collision=9436 (16.27%) no_progress=358 (0.62%) timeout=44 (0.08%)
+-----------------------------------------
+| debug/                  |             |
+|    adv_mean             | -0.0596     |
+|    q_est_mean           | 2.91        |
+|    v_mean               | 2.97        |
+| rollout/                |             |
+|    ep_len_mean          | 68.5        |
+|    ep_rew_mean          | 1.36e+03    |
+| time/                   |             |
+|    fps                  | 1027        |
+|    iterations           | 240         |
+|    time_elapsed         | 3827        |
+|    total_timesteps      | 3932160     |
+| train/                  |             |
+|    approx_kl            | 0.008621801 |
+|    clip_fraction        | 0.0725      |
+|    clip_range           | 0.2         |
+|    entropy_loss         | -1.57       |
+|    explained_variance   | 0.647       |
+|    learning_rate        | 0.0001      |
+|    loss                 | 0.0285      |
+|    n_updates            | 2390        |
+|    policy_gradient_loss | -0.0118     |
+|    std                  | 0.536       |
+|    value_loss           | 0.192       |
+-----------------------------------------
+[episodes=58503] reached=48598 (83.07%) collision=9494 (16.23%) no_progress=364 (0.62%) timeout=47 (0.08%)
+[episodes=59004] reached=49027 (83.09%) collision=9557 (16.20%) no_progress=369 (0.63%) timeout=51 (0.09%)
+[t=4000000] [Eval obs=0] success=100/100 (100.00%) collision=0 (0.00%) no_progress=0 (0.00%) timeout=0 (0.00%) avg_steps=50.9 avg_dist=20.00
+[t=4000000] [Eval obs=5] success=97/100 (97.00%) collision=3 (3.00%) no_progress=0 (0.00%) timeout=0 (0.00%) avg_steps=44.2 avg_dist=18.43
+[t=4000000] [Eval obs=10] success=97/100 (97.00%) collision=3 (3.00%) no_progress=0 (0.00%) timeout=0 (0.00%) avg_steps=48.0 avg_dist=19.41
+[t=4000000] [Eval obstacle_density_15] success=88/100 (88.00%) collision=12 (12.00%) no_progress=0 (0.00%) timeout=0 (0.00%) avg_steps=61.3 avg_dist=22.91
+[t=4000000] [Eval obstacle_density_20] success=81/100 (81.00%) collision=19 (19.00%) no_progress=0 (0.00%) timeout=0 (0.00%) avg_steps=60.6 avg_dist=22.75
+[t=4000000] [Eval narrow_passage] success=99/100 (99.00%) collision=1 (1.00%) no_progress=0 (0.00%) timeout=0 (0.00%) avg_steps=61.7 avg_dist=23.28
+[t=4000000] [Eval course_l_s] success=100/100 (100.00%) collision=0 (0.00%) no_progress=0 (0.00%) timeout=0 (0.00%) avg_steps=46.4 avg_dist=15.82
+[t=4000000] ✅ New best weighted_score=0.9285 -> saved: /home/dev/PX4-Autopilot/rl/models_ppo_2d/ablation/C2_seed123/best_model.zip
+ 100% ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━ 4,014,080/4,000,000  [ 1:05:45 < 0:00:00 , 1,124 it/s ]
+Saved final model to: /home/dev/PX4-Autopilot/rl/models_ppo_2d/ablation/C2_seed123/ppo_uav2d_final.zip
+Saved VecNormalize stats to: /home/dev/PX4-Autopilot/rl/models_ppo_2d/ablation/C2_seed123/vecnormalize.pkl
+
+=== Final Evaluation ===
+[Eval obs=0] success=100/100 (100.00%) collision=0 (0.00%) no_progress=0 (0.00%) timeout=0 (0.00%) avg_steps=47.8 avg_dist=19.01
+[Eval obs=5] success=96/100 (96.00%) collision=4 (4.00%) no_progress=0 (0.00%) timeout=0 (0.00%) avg_steps=43.6 avg_dist=18.95
+[Eval obs=10] success=97/100 (97.00%) collision=3 (3.00%) no_progress=0 (0.00%) timeout=0 (0.00%) avg_steps=41.9 avg_dist=17.79
+
+=== Stress Test Evaluation ===
+[Eval obstacle_density_15] success=80/100 (80.00%) collision=20 (20.00%) no_progress=0 (0.00%) timeout=0 (0.00%) avg_steps=58.1 avg_dist=22.20
+[Eval obstacle_density_20] success=74/100 (74.00%) collision=26 (26.00%) no_progress=0 (0.00%) timeout=0 (0.00%) avg_steps=61.2 avg_dist=22.16
+[Eval narrow_passage] success=99/100 (99.00%) collision=1 (1.00%) no_progress=0 (0.00%) timeout=0 (0.00%) avg_steps=63.3 avg_dist=23.41
+[Eval course_l_s] success=100/100 (100.00%) collision=0 (0.00%) no_progress=0 (0.00%) timeout=0 (0.00%) avg_steps=49.0 avg_dist=16.33
+New best training result (weighted_score=0.8962) -> saved: /home/dev/PX4-Autopilot/rl/models_ppo_2d/ablation/C2_seed123/ppo_uav2d_best_training.zip
+[Eval sensor_noise] success=98/100 (98.00%) collision=2 (2.00%) no_progress=0 (0.00%) timeout=0 (0.00%) avg_steps=44.2 avg_dist=18.93
+=== End Evaluation ===
+§30 ablation: saved evaluation results to /home/dev/PX4-Autopilot/rl/models_ppo_2d/ablation/C2_seed123/ablation_eval.json

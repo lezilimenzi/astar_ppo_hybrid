@@ -1,0 +1,25 @@
+# ---- Python ----
+__pycache__/
+*.py[cod]
+*.egg-info/
+.venv/
+venv/
+env/
+
+# ---- ROS2 / colcon (생성물) ----
+px4_ws/build/
+px4_ws/install/
+px4_ws/log/
+
+# ---- 대용량 산출물 (GitHub 100MB 제한 / 용량) ----
+rl/_archive_ablation/
+rl/models_ppo_2d/
+*.bson
+
+# ---- 에디터 / OS ----
+.DS_Store
+*.swp
+.idea/
+
+# ---- 로그 (필요시 주석 해제로 제외) ----
+# *.log

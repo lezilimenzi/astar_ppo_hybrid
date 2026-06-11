@@ -1,0 +1,18 @@
+{
+  "permissions": {
+    "allow": [
+      "Bash(python3 -c ':*)",
+      "Bash(wsl python3 -c ':*)",
+      "Bash(wsl -d Ubuntu-22.04 python3 -c ':*)",
+      "Bash(/home/akswosla/PX4-Autopilot/rl/.venv/bin/python3 debug_obs0_noprogress.py)",
+      "Read(///wsl.localhost/Ubuntu-22.04/home/akswosla/PX4-Autopilot/px4_ws/src/px4_rl_offboard_mavros/**)",
+      "Read(///wsl.localhost/Ubuntu-22.04/home/akswosla/PX4-Autopilot/rl/models_ppo_2d/**)"
+    ],
+    "additionalDirectories": [
+      "\\home\\akswosla\\PX4-Autopilot\\px4_ws\\src\\px4_rl_offboard_mavros\\config",
+      "\\\\wsl.localhost\\Ubuntu-22.04\\home\\akswosla\\PX4-Autopilot\\px4_ws\\src\\px4_rl_offboard_mavros\\config",
+      "\\home\\akswosla\\PX4-Autopilot\\px4_ws\\src\\px4_nav_perception\\px4_nav_perception\\nodes",
+      "\\\\wsl.localhost\\Ubuntu-22.04\\home\\akswosla\\PX4-Autopilot\\px4_ws\\src\\px4_nav_perception\\px4_nav_perception\\nodes"
+    ]
+  }
+}

@@ -1,0 +1,7 @@
+{
+  "permissions": {
+    "allow": [
+      "Bash(wsl -d Ubuntu-22.04 -- bash -c 'python3 -c \":*)"
+    ]
+  }
+}

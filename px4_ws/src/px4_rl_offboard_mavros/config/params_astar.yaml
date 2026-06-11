@@ -1,0 +1,6 @@
+# A* 단독 모드 (비교 실험용)
+# - PPO 없음, A* global planner만 사용
+# - policy / obs_norm 로드 불필요
+rl_offboard_node:
+  ros__parameters:
+    nav_mode: "astar"

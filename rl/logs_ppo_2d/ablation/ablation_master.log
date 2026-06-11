@@ -1,0 +1,108 @@
+===== §30 ablation start: 2026-04-29 22:40:13 =====
+Total runs: 24 (8 config × 3 seed), timesteps=4000000
+Estimated total time: 28~32 hours (1.2~1.3 days)
+Log base:  /home/dev/PX4-Autopilot/rl/logs_ppo_2d/ablation
+Save base: /home/dev/PX4-Autopilot/rl/models_ppo_2d/ablation
+
+
+[22:40:13] [1/24] START C0_seed42
+  weights: A0=0.0 A1=0.0 A2=0.0 A3-t=0.0 A3-s=0.0 A4=0.0 A5=0.0 A6-d=0.0 A6-c=0.0
+[23:39:46] [1/24] DONE  C0_seed42: weighted=0.24309999999999998, duration=0h59m
+
+[23:39:46] [2/24] START C0_seed123
+  weights: A0=0.0 A1=0.0 A2=0.0 A3-t=0.0 A3-s=0.0 A4=0.0 A5=0.0 A6-d=0.0 A6-c=0.0
+[00:36:44] [2/24] DONE  C0_seed123: weighted=0.27, duration=0h56m
+
+[00:36:44] [3/24] START C0_seed7
+  weights: A0=0.0 A1=0.0 A2=0.0 A3-t=0.0 A3-s=0.0 A4=0.0 A5=0.0 A6-d=0.0 A6-c=0.0
+[01:34:59] [3/24] DONE  C0_seed7: weighted=0.23320000000000002, duration=0h58m
+
+[01:34:59] [4/24] START C1_seed42
+  weights: A0=50.0 A1=0.0 A2=0.0 A3-t=0.0 A3-s=0.0 A4=0.0 A5=0.0 A6-d=0.0 A6-c=0.0
+[02:37:04] [4/24] DONE  C1_seed42: weighted=0.9153999999999999, duration=1h2m
+
+[02:37:04] [5/24] START C1_seed123
+  weights: A0=50.0 A1=0.0 A2=0.0 A3-t=0.0 A3-s=0.0 A4=0.0 A5=0.0 A6-d=0.0 A6-c=0.0
+[03:39:41] [5/24] DONE  C1_seed123: weighted=0.9343000000000001, duration=1h2m
+
+[03:39:41] [6/24] START C1_seed7
+  weights: A0=50.0 A1=0.0 A2=0.0 A3-t=0.0 A3-s=0.0 A4=0.0 A5=0.0 A6-d=0.0 A6-c=0.0
+[04:42:36] [6/24] DONE  C1_seed7: weighted=0.9100999999999999, duration=1h2m
+
+[04:42:36] [7/24] START C2_seed42
+  weights: A0=50.0 A1=0.0 A2=0.0 A3-t=0.0 A3-s=0.0 A4=0.0 A5=800.0 A6-d=0.0 A6-c=0.0
+[05:48:29] [7/24] DONE  C2_seed42: weighted=0.9535, duration=1h5m
+
+[05:48:29] [8/24] START C2_seed123
+  weights: A0=50.0 A1=0.0 A2=0.0 A3-t=0.0 A3-s=0.0 A4=0.0 A5=800.0 A6-d=0.0 A6-c=0.0
+[06:55:21] [8/24] DONE  C2_seed123: weighted=0.8961999999999999, duration=1h6m
+
+[06:55:21] [9/24] START C2_seed7
+  weights: A0=50.0 A1=0.0 A2=0.0 A3-t=0.0 A3-s=0.0 A4=0.0 A5=800.0 A6-d=0.0 A6-c=0.0
+[07:57:47] [9/24] DONE  C2_seed7: weighted=0.9314, duration=1h2m
+
+[07:57:47] [10/24] START C3_seed42
+  weights: A0=50.0 A1=0.0 A2=0.0 A3-t=200.0 A3-s=1.0 A4=0.0 A5=800.0 A6-d=0.0 A6-c=0.0
+[09:00:40] [10/24] DONE  C3_seed42: weighted=0.9306000000000001, duration=1h2m
+
+[09:00:40] [11/24] START C3_seed123
+  weights: A0=50.0 A1=0.0 A2=0.0 A3-t=200.0 A3-s=1.0 A4=0.0 A5=800.0 A6-d=0.0 A6-c=0.0
+[10:08:15] [11/24] DONE  C3_seed123: weighted=0.9277, duration=1h7m
+
+[10:08:15] [12/24] START C3_seed7
+  weights: A0=50.0 A1=0.0 A2=0.0 A3-t=200.0 A3-s=1.0 A4=0.0 A5=800.0 A6-d=0.0 A6-c=0.0
+[11:13:47] [12/24] DONE  C3_seed7: weighted=0.9117, duration=1h5m
+
+[11:13:48] [13/24] START C4_seed42
+  weights: A0=50.0 A1=0.0 A2=0.0 A3-t=200.0 A3-s=1.0 A4=300.0 A5=800.0 A6-d=0.0 A6-c=0.0
+[12:29:13] [13/24] DONE  C4_seed42: weighted=0.923, duration=1h15m
+
+[12:29:13] [14/24] START C4_seed123
+  weights: A0=50.0 A1=0.0 A2=0.0 A3-t=200.0 A3-s=1.0 A4=300.0 A5=800.0 A6-d=0.0 A6-c=0.0
+[13:39:55] [14/24] DONE  C4_seed123: weighted=0.9292999999999998, duration=1h10m
+
+[13:39:55] [15/24] START C4_seed7
+  weights: A0=50.0 A1=0.0 A2=0.0 A3-t=200.0 A3-s=1.0 A4=300.0 A5=800.0 A6-d=0.0 A6-c=0.0
+[14:42:04] [15/24] DONE  C4_seed7: weighted=0.9317, duration=1h2m
+
+[14:42:04] [16/24] START C5_seed42
+  weights: A0=50.0 A1=0.0 A2=0.0 A3-t=200.0 A3-s=1.0 A4=300.0 A5=800.0 A6-d=6.0 A6-c=10.0
+[15:43:40] [16/24] DONE  C5_seed42: weighted=0.9100999999999999, duration=1h1m
+
+[15:43:40] [17/24] START C5_seed123
+  weights: A0=50.0 A1=0.0 A2=0.0 A3-t=200.0 A3-s=1.0 A4=300.0 A5=800.0 A6-d=6.0 A6-c=10.0
+[16:45:14] [17/24] DONE  C5_seed123: weighted=0.9117, duration=1h1m
+
+[16:45:14] [18/24] START C5_seed7
+  weights: A0=50.0 A1=0.0 A2=0.0 A3-t=200.0 A3-s=1.0 A4=300.0 A5=800.0 A6-d=6.0 A6-c=10.0
+[17:48:51] [18/24] DONE  C5_seed7: weighted=0.8704000000000001, duration=1h3m
+
+[17:48:51] [19/24] START C6_seed42
+  weights: A0=50.0 A1=0.02 A2=0.0 A3-t=200.0 A3-s=1.0 A4=300.0 A5=800.0 A6-d=6.0 A6-c=10.0
+[18:51:14] [19/24] DONE  C6_seed42: weighted=0.9238000000000001, duration=1h2m
+
+[18:51:14] [20/24] START C6_seed123
+  weights: A0=50.0 A1=0.02 A2=0.0 A3-t=200.0 A3-s=1.0 A4=300.0 A5=800.0 A6-d=6.0 A6-c=10.0
+[19:53:36] [20/24] DONE  C6_seed123: weighted=0.9001000000000001, duration=1h2m
+
+[19:53:36] [21/24] START C6_seed7
+  weights: A0=50.0 A1=0.02 A2=0.0 A3-t=200.0 A3-s=1.0 A4=300.0 A5=800.0 A6-d=6.0 A6-c=10.0
+[20:57:13] [21/24] DONE  C6_seed7: weighted=0.9316, duration=1h3m
+
+[20:57:13] [22/24] START C7_seed42
+  weights: A0=50.0 A1=0.02 A2=0.5 A3-t=200.0 A3-s=1.0 A4=300.0 A5=800.0 A6-d=6.0 A6-c=10.0
+[22:01:06] [22/24] DONE  C7_seed42: weighted=0.9099000000000002, duration=1h3m
+
+[22:01:06] [23/24] START C7_seed123
+  weights: A0=50.0 A1=0.02 A2=0.5 A3-t=200.0 A3-s=1.0 A4=300.0 A5=800.0 A6-d=6.0 A6-c=10.0
+[23:03:17] [23/24] DONE  C7_seed123: weighted=0.9131, duration=1h2m
+
+[23:03:17] [24/24] START C7_seed7
+  weights: A0=50.0 A1=0.02 A2=0.5 A3-t=200.0 A3-s=1.0 A4=300.0 A5=800.0 A6-d=6.0 A6-c=10.0
+[00:03:12] [24/24] DONE  C7_seed7: weighted=0.9025000000000001, duration=0h59m
+
+===== §30 ablation end: 2026-05-01 00:03:12 =====
+Total elapsed: 25h22m
+Completed runs: 24/24
+✅ All 24 runs completed successfully.
+Next step: Phase 3 — scripts/aggregate_ablation.py 작성 및 실행
