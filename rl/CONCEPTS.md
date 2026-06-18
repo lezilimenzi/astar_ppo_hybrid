@@ -115,7 +115,7 @@ LiDAR 는 유한한 `max_range`(10 m) 까지만 보므로, 정책이 받는 관�
 
 - **시간**: 이산 시간 스텝 **t = 0, 1, 2, …**, 한 스텝 길이는 **Δt** (`dt`, 기본 **0.05 s** — 배포 setpoint 20 Hz 정합, experiments.md §2.5).
 - **상태 공간 S**: §4.2 의 관측 벡터 **s_t** ∈ **ℝ⁶⁶** 로 근사(센서·목표 정보만 사용 — 완전한 내부 상태는 위치·자세·장애물이지만 정책 입장에서는 **s_t** 가 주어진 **Markov 관측**으로 간주).
-- **행동 공간 A**: §4.3 의 **a_t** ∈ **[-1, 1]²**.
+- **행동 공간 A**: §4.3 의 **a_t** ∈ **[-1, 1]²** (정규화 행동). 물리 제약(매핑 후): 선속도 **v ∈ [0.3, 0.8] m/s**, 요 각속도 **ω ∈ [-1.0, 1.0] rad/s** (§4.3).
 - **전이 P(s_{t+1} | s_t, a_t)**: 2D kinematic 모델 + 장애물·경계 충돌 처리(결정적. 학습 시 시드로 장애물·초기 조건 재현).
 - **할인율 γ**: `train_ppo_2d.py` 기본 **0.9983** (= 0.99^(1/6), dt 0.3→0.05 보정으로 실시간 discount horizon ~30 s 보존, §3.3).
 - **보상 r_t**: §4.4.
@@ -125,7 +125,7 @@ LiDAR 는 유한한 `max_range`(10 m) 까지만 보므로, 정책이 받는 관�
 - **종료(terminated)**: 충돌 또는 목표 반경 `goal_radius` 내 도달(success).
 - **절단(truncated)**: **timeout** — `step_count` 가 **`max_steps` 이상**이면 절단. 기본 `max_steps` = **1800** (dt=0.05 기준 ~90 s).
 
-> 과거 버전에는 no-progress 절단 + 시간·근접·스핀·timeout 페널티가 있었으나, **C2 최소 보상**에서는 모두 제거되었다(가중치 0). 근거는 PBRS(§3.1)와 ablation(experiments.md §2 — BFS-progress 외 항은 marginal/negative).
+> 과거 버전에는 no-progress 절단 + 시간·근접·스핀·timeout 페널티가 있었으나, **C2 최소 보상**에서는 env 코드에서 모두 제거되었다. 근거는 PBRS(§3.1)와 ablation(experiments.md §2 — BFS-progress 외 항은 marginal/negative).
 
 ### 4.2 상태 공간 — 에이전트가 매 순간 무엇을 보는가
 
@@ -238,7 +238,7 @@ Chikhaoui et al. (2022) 는 도시 환경 PPO 내비게이션에 **구조화된 
 | Success bonus | `success_reward=800` | 희소 **성공** anchor (sparse) |
 | Collision | `collision_penalty=500` | **충돌** terminal 페널티 (안전) |
 
-> 환경 코드는 `w_danger`·`w_close`·`w_spin`·`w_time_pressure`·`w_no_progress`·`w_timeout` 파라미터를 **여전히 노출**하지만(ablation 재현용), C2 기본값은 모두 **0** 이다. 항별 정량 기여·제외 근거는 experiments.md §2.2~§2.3.
+> `w_danger`·`w_close`·`w_spin`·`w_time_pressure`·`w_no_progress`·`w_timeout` 항은 이전 ablation 버전에 있었으나 **현재 env 코드에서는 제거**되어 C2 세 항만 구현된다. 항별 정량 기여·제외 근거는 experiments.md §2.2~§2.3.
 
 #### 왜 dense shaping(BFS-progress)인가 — PBRS 관점 재정리
 
