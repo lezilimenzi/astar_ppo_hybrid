@@ -1,44 +1,15 @@
 course_goal_publisher:
   ros__parameters:
     frame_id: "odom"
-    default_course: "R"    # R 또는 L
-    # odom 원점 = Gazebo 스폰. sitl_run.sh 와 동일 (XY=0,0 / Z=지면 위 높이)
-    spawn_enu: [0.0, 0.0, 0.83]
+    default_course: "R"              # R 또는 L
+    spawn_enu: [0.0, 0.0, 0.83]      # odom 원점 = Gazebo 스폰 (sitl_run.sh)
 
-    # ============================================================
-    # 활성 좌표 (military_airfield.world, 50×50 FOB, 모든 장애물 h=8)
-    # ============================================================
+    # 활성 좌표 (스폰 기준 ENU). 월드 변경 시 아래 레퍼런스에서 복사.
     home_xyz: [0.0, 8.0, 4.0]
     goal_R: [8.0, -8.2, 4.0]
     goal_L: [-8.0, -8.2, 4.0]
 
-    # ============================================================
-    # 월드별 좌표 레퍼런스 (스폰 기준 ENU)
-    # 사용 월드 변경 시 위 home_xyz/goal_R/goal_L 값을 아래에서 복사
-    # ============================================================
-    #
-    # ── obstacle_course.world (20×20, ㄹ/S 코스, cruise z=4.0) ───
-    #   월드 내 home/goal 마킹 좌표와 일치 (line 175/224/273)
-    #   home_xyz: [0.0,  8.0,  4.0]  # 북쪽 corridor (y=10 외벽과 inner_r_h1(y=6) 사이)
-    #   goal_R:   [8.0, -8.2,  4.0]  # SE, ㄹ 코스 끝 (inner_r_h4(y=-6)와 r_outer_bottom(y=-10) 사이)
-    #   goal_L:  [-8.0, -8.2,  4.0]  # SW, S 코스 끝 (대칭, inner_s_v4(x=-5) 서쪽)
-    #   패턴:    스폰 → 북쪽 home 이동 → 남쪽 goal 코스 통과
-    #   검증:    0.6m 두께 벽과 AABB 겹침 없음 (CHANGELOG 2026-04-14)
-    #
-    # ── military_airfield.world (50×50 FOB, cruise z=4.0) ───────
-    #   레이아웃: NW admin(-15,12)+barracks(-18,21) | NE hangar(15,12)+helipad(20,20)
-    #            SW oil_depot(-9~-14,-15~-20)+방유제 | SE comms(15,-15)+watch(10,-22)+vehicles
-    #            CENTER cen_obs ×6, PERIMETER bunker ×2 + jersey ×6
-    #   장애물 높이: 모든 obstacle h=8 (cruise z=4.0 → top z=8 → lateral 회피 필수)
-    #   home_xyz: [0.0,   0.0,  4.0]  # 스폰 위 수직 takeoff (반경 3m 클리어 존)
-    #   goal_R:   [20.0,  20.0, 4.0]  # NE helipad 상공 (직선거리 ~28.3m)
-    #   goal_L:   [-18.0,-20.0, 4.0]  # SW 외곽 (직선거리 ~27m, 비대칭 대각)
-    #   패턴:    스폰 → home(=hover at z=4.0) → 대각 traverse
-    #   검증:    boundary ±25 내, oil_tank 클러스터 우회 필요 (goal_L 방향)
-    #
-    # ── 월드 내 시각적 마커 (military_airfield.world only) ──────
-    #   start_marker  at (0,0,0)      : 빨강 disc r=1.5 + 흰 'S' (homing 위치)
-    #   goal_R_marker at (20,20,0.15) : 파랑 disc r=1.5 + 흰 'G' (helipad 위 스택)
-    #   goal_L_marker at (-18,-20,0)  : 파랑 disc r=1.5 + 흰 'G' (SW 외곽)
-    #   ※ 시각 전용(collision 없음). 좌표 변경 시 world의 마커 pose도 함께 갱신.
-    #   ※ oil_tank 클러스터 3m 동쪽 이동(-12~-17 → -9~-14)으로 goal_L 마커 충돌 회피.
+    # 월드별 레퍼런스 (cruise z=4.0):
+    #   obstacle_course.world  (20×20):              home[0,8,4]  goal_R[8,-8.2,4]  goal_L[-8,-8.2,4]
+    #   military_airfield.world(50×50, obstacle h=8): home[0,0,4]  goal_R[20,20,4]   goal_L[-18,-20,4]
+    #   ※ military 은 시각 마커(start/goal disc) 사용 — 좌표 변경 시 world 파일의 마커 pose 도 함께 갱신.

@@ -1,6 +1,6 @@
 # PPO 단독 모드 (비교 실험용)
 # - A* 없음, 최종 goal 방향으로 PPO만 추론
-# - 기존 policy_ts.pt / obs_norm.json 사용 (world_size=20 정규화)
+# - policy_ppo_ts.pt / obs_norm_ppo.json 사용 (world_size=20 정규화)
 rl_offboard_node:
   ros__parameters:
     nav_mode: "ppo"

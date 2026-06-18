@@ -12,39 +12,27 @@ from mavros_msgs.msg import State
 from mavros_msgs.srv import SetMode, CommandBool
 
 class CourseGoalPublisher(Node):
-    """
-    기능:
-      1) 노드 시작 시 드론을 (0,8,2.5)로 먼저 이동시키는 '호밍' 수행
-         - /mavros/setpoint_position/local 로 20Hz 퍼블리시
-         - 현재 포즈 구독해서 도달 시 조기 종료(기본 오차 0.3m)
-      2) 호밍 완료 후, 선택된 코스(R/L)의 목표를 /planner/goal 로 1회 퍼블리시
-      3) 실행 중 /planner/course_select("R"/"L")를 받으면 해당 목표 재퍼블리시
-      4) /planner/goal 은 TRANSIENT_LOCAL QoS(래칭 효과)
-
-    주의:
-      - 호밍 활성화 시 이 노드가 OFFBOARD/ARM 요청 수행 (setpoint와 함께)
-      - 프레임: odom (로컬 좌표, spawn 기준)
-    """
+    """호밍(home_xyz 이동) 후 선택 코스(R/L) 목표를 /planner/goal(latched)로 발행.
+    호밍 중 OFFBOARD/ARM 요청 수행. /planner/course_select 로 코스 변경. 프레임: odom(spawn 기준 ENU)."""
 
     def __init__(self):
         super().__init__('course_goal_publisher')
 
-        # ---------------- Params ----------------
-        self.declare_parameter('frame_id', 'odom')  # goals.yaml에서 덮어씀
+        # Params (좌표·코스는 goals.yaml에서 덮어씀)
+        self.declare_parameter('frame_id', 'odom')
         self.declare_parameter('default_course', 'R')
-        # 코스 목표 좌표는 goals.yaml에서 덮어씀
         self.declare_parameter('goal_R', [8.0, -8.2, 2.5])
         self.declare_parameter('goal_L', [-8.0, -8.2, 2.5])
+        self.declare_parameter('spawn_enu', [0.0, 0.0, 0.83])  # = Gazebo 스폰 (sitl_run.sh)
 
-        # MAVROS map 원점 = Gazebo 스폰. sitl_run.sh 와 동일 (기본 XY=0,0 Z=0.83)
-        self.declare_parameter('spawn_enu', [0.0, 0.0, 0.83])
-        # 호밍(시작점 이동) 파라미터
+        # 호밍 (시작점 이동)
         self.declare_parameter('enable_homing', True)
-        self.declare_parameter('home_xyz', [0.0, 8.0, 2.5])  # goals.yaml에서 덮어씀
-        self.declare_parameter('home_tolerance', 0.30)     # m
-        self.declare_parameter('home_timeout_sec', 20.0)   # 최대 유지 시간
-        self.declare_parameter('home_rate_hz', 20.0)       # 퍼블리시 주기(Hz)
-        self.declare_parameter('hold_after_homing', False) # 호밍 완료 후 setpoint 유지 여부
+        self.declare_parameter('home_xyz', [0.0, 8.0, 2.5])
+        self.declare_parameter('home_tolerance', 0.30)
+        self.declare_parameter('home_timeout_sec', 20.0)
+        self.declare_parameter('home_rate_hz', 20.0)
+        self.declare_parameter('hold_after_homing', False)
+
         # OFFBOARD/ARM (호밍 중만 사용)
         self.declare_parameter('request_offboard_during_homing', True)
         self.declare_parameter('pre_setpoint_sec', 2.0)
@@ -98,30 +86,24 @@ class CourseGoalPublisher(Node):
         self._t_last_mode_req = 0.0
         self._t_last_arm_req = 0.0
 
-        # ---------------- QoS & I/O ----------------
-        # Latching용 (목표점용) - TRANSIENT_LOCAL 적합
-        q_latched = QoSProfile(
+        # QoS & I/O
+        q_latched = QoSProfile(   # 목표 latching
             reliability=ReliabilityPolicy.RELIABLE,
             durability=DurabilityPolicy.TRANSIENT_LOCAL,
             history=HistoryPolicy.KEEP_LAST,
             depth=1
         )
-
-        # 센서 데이터 구독용 - BEST_EFFORT 적합
-        q_mavros_sub = QoSProfile(
+        q_mavros_sub = QoSProfile(   # 센서 구독 (BEST_EFFORT)
             reliability=ReliabilityPolicy.BEST_EFFORT,
             history=HistoryPolicy.KEEP_LAST,
             depth=10
         )
-
-        # Setpoint 발행용 - RELIABLE, TRANSIENT_LOCAL 제거, depth 증가
-        q_setpoint = QoSProfile(
+        q_setpoint = QoSProfile(   # setpoint 스트리밍
             reliability=ReliabilityPolicy.RELIABLE,
             history=HistoryPolicy.KEEP_LAST,
             depth=10
         )
 
-        # Pose 구독(현재 위치) - 센서 데이터이므로 BEST_EFFORT
         self.sub_pose = self.create_subscription(
             PoseStamped, '/mavros/local_position/pose', self._on_pose, q_mavros_sub,
         )
@@ -130,23 +112,15 @@ class CourseGoalPublisher(Node):
             self._cli_mode = self.create_client(SetMode, '/mavros/set_mode')
             self._cli_arm = self.create_client(CommandBool, '/mavros/cmd/arming')
 
-        # Goal publish (latched, odom 로컬 좌표) - TRANSIENT_LOCAL 적합
         self.pub_goal = self.create_publisher(PoseStamped, '/planner/goal', q_latched)
-
-        # Homing 완료 신호 (RL 노드가 velocity 제어 시작 시점 판단용)
+        # RL 노드가 velocity 제어 시작 시점 판단
         self.pub_homing_done = self.create_publisher(Bool, '/planner/homing_done', q_latched)
-
-        # Setpoint publish (OFFBOARD용 위치 setpoint) - 스트리밍 데이터이므로 TRANSIENT_LOCAL 제거
         self.pub_setpoint = self.create_publisher(
             PoseStamped, '/mavros/setpoint_position/local', q_setpoint
         )
-
-        # 코스 선택 구독
         self.sub_select = self.create_subscription(
             String, '/planner/course_select', self._on_select, 10
         )
-
-        # 타이머: 호밍/목표 발행 루프
         self.timer = self.create_timer(1.0 / max(1.0, self.home_rate_hz), self._tick)
 
         self.get_logger().info(

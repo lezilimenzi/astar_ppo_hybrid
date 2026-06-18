@@ -1,8 +1,6 @@
 grid_fuser:
   ros__parameters:
-    # Grid geometry — 고정 맵: military_airfield(50×50) 커버 위해 ±26.1m로 확장
-    # 해상도 0.2m: 261×0.2=52.2m → origin -26.1 ~ +26.1m (대칭). 셀 수 261²=68,121 (272 KB).
-    # 이전: 221×0.2=44.2m (±22.1m, obstacle_course 1x/2x용).
+    # 고정 맵: military_airfield(50×50) 커버 — 261×0.2=52.2m, origin ±26.1m 대칭
     resolution: 0.20
     width: 261
     height: 261
@@ -10,38 +8,24 @@ grid_fuser:
     robot_frame: "base_link"
     rolling_window: false
 
-    # Topics / IO
     lidar_topic: "/scan"
     publish_rate: 5.0
     max_range: 10.0
-    # r >= max_range - epsilon 이면 "오픈"로 간주, ray 끝을 occupied로 찍지 않음 (가짜 고리 방지)
-    max_range_no_hit_epsilon: 0.08
+    max_range_no_hit_epsilon: 0.08   # r≥max_range−eps 면 "오픈"으로 보고 끝 셀 occupied 안 찍음 (가짜 고리 방지)
 
-    # Log-odds: 단일 빔 히트로 즉시 occupied 확정 방지.
-    # 드론 회전 중 스캔 왜곡(motion distortion)으로 생기는 오표시를
-    # 여러 번 일관된 관측이 있어야 확정되도록 완화.
+    # Log-odds: 단일 빔 오표시(회전 중 motion distortion)를 여러 관측 누적으로 완화
     use_log_odds: true
-    # prob_hit / prob_miss: grid_fuser가 쓰는 log-odds 증분 l = log(p/(1-p))의 p (Thrun 등 표준 occupancy).
-    # 히트: 끝 셀에 l_hit +=.  빔이 지나간 자유 셀: l_miss += (l_miss는 음수).
-    # is_endpoint + is_dup 수정(2026-04-14) 이후 파라미터 재조정:
-    #   is_endpoint: occupied 셀이 자기 빔의 l_miss를 더 이상 받지 않음 → prob_hit 상향으로 측면 miss 저항성 강화
-    #   is_dup: 짧은 빔 free 셀 l_miss 적용이 3~4회→1회 → l_miss 강도 상향으로 false positive 소거 속도 보상
-    prob_hit: 0.85        # l_hit=log(0.85/0.15)≈+1.792
-    prob_miss: 0.35       # l_miss=log(0.35/0.65)≈−0.619
-    clamp_min: -2.0       # log-odds 하한(너무 과한 free 확신 방지). miss가 많이 쌓여도 이보다 내려가지 않음.
-    clamp_max: 3.0        # 2.0→3.0. occupied 셀이 clamp_max 도달 후 소거에 l_miss 5회 이상 필요 → 실제 장애물 안정 유지.
-    # 반드시 0.5보다 커야 함: log-odds=0(초기 중립) → prob=0.5 이며, thresh≤0.5면 미관측 셀 전부 occupied(100)→맵 전체 검정·A* 실패.
-    # [수정 6] 0.51→0.55: log-odds 기준 0.040→0.201. 경계 셀의 1회 l_miss(−0.847)로 인한 occupied↔free oscillation 완화.
-    #   0.51: 한 번의 l_miss만으로 threshold 아래 탈락(0.040−0.847=−0.807 → FREE)
-    #   0.55: threshold log_odds=0.201, l_miss 1회 후 −0.646 → FREE
-    occupied_thresh: 0.55
-    decay_rate: 0.001    # DOUBLE이어야 함(YAML의 0은 INTEGER로 파싱되어 declare_parameter와 충돌). 감쇠 없음.
+    prob_hit: 0.85        # l_hit ≈ +1.792
+    prob_miss: 0.35       # l_miss ≈ −0.619
+    clamp_min: -2.0
+    clamp_max: 3.0
+    occupied_thresh: 0.55 # 반드시 >0.5 (0.5면 미관측 셀이 전부 occupied → 맵 전체 검정·A* 실패)
+    decay_rate: 0.001     # DOUBLE 필수 (0은 INT 파싱→declare_parameter 충돌). 감쇠 없음
     occupied_value: 100
     free_value: 0
     unknown_value: -1
 
-    # rolling_window=false: OccupancyGrid 원점 = 셀 (0,0)의 모서리 (남서 기준, x+, y+)
-    # 261×0.2=52.2m → -26.1 ~ +26.1m 대칭 (military_airfield 50×50 커버)
+    # rolling_window=false: 원점 = 남서 모서리, ±26.1m 대칭
     origin_x: -26.1
     origin_y: -26.1
-    publish_dilation_cells: 1   # occupied 셀 발행 전 팽창 반경(셀). 8-connected. 0=비활성
+    publish_dilation_cells: 1   # occupied 발행 전 팽창 반경(셀), 8-connected, 0=비활성

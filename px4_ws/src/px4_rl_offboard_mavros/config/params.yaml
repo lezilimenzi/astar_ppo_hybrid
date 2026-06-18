@@ -1,99 +1,58 @@
-# px4_rl_offboard_mavros - RL Offboard Control Parameters
-# Frame: MAVROS ENU (world)
+# px4_rl_offboard_mavros — RL Offboard Control (MAVROS ENU frame)
 
 rl_offboard_node:
   ros__parameters:
-    # --- Topics ---
+    # Topics
     mavros_state_topic: "/mavros/state"
-    mavros_odom_topic: "/mavros/local_position/odom"   # pose + (twist 미사용)
-    mavros_setpoint_topic: "/mavros/setpoint_velocity/cmd_vel_unstamped"  # local/world(ENU) 속도 publish
-    # LaserScan: /scan (RPLidar, Gazebo)
+    mavros_odom_topic: "/mavros/local_position/odom"
+    mavros_setpoint_topic: "/mavros/setpoint_velocity/cmd_vel_unstamped"  # ENU 속도
     scan_topic: "/scan"
-    goal_topic: "/planner/goal"            # 또는 /planner/goal_pose (PoseStamped)
-    homing_done_topic: "/planner/homing_done"  # Bool, homing 완료 시 True
-    wait_for_homing: true                  # homing 완료 후 velocity 제어 시작
+    goal_topic: "/planner/goal"
+    homing_done_topic: "/planner/homing_done"
+    wait_for_homing: true
 
-    # goal_timeout_sec: 0.0 = 무제한 (latched goal은 1회만 publish되므로)
-    goal_timeout_sec: 0.0
-
-    # --- 센서 timeout (sim clock 기반, #5) ---
     odom_timeout_sec: 0.3   # 22Hz odom 기준 ~6× 여유
     scan_timeout_sec: 0.5   # 10Hz scan 기준 5× 여유
+    goal_radius: 1.5        # 이내면 hover (overshoot 방지)
 
-    # --- Goal 도달 / 고도 유지 ---
-    goal_radius: 1.5              # goal 반경(m) 이내면 hover (overshoot/이탈 방지)
-
-    # --- nav_mode: "hybrid" | "astar" | "ppo" ---
-    # hybrid: A* waypoint → PPO 항상 실행 (재학습 policy_hybrid_ts.pt 사용)
-    # astar : A* 단독 (PPO 없음, 비교 실험용)
-    # ppo   : PPO 단독, 최종 goal 방향 (기존 policy_ts.pt 사용, 비교 실험용)
-    nav_mode: "hybrid"   # 재학습 완료 (2026-04-12) → policy_hybrid_ts.pt / obs_norm_hybrid.json 배포 완료
+    # nav_mode: hybrid(A* lookahead + PPO) | astar(단독) | ppo(단독, 비교용)
+    #   모델: hybrid→policy_hybrid_ts.pt, ppo→policy_ppo_ts.pt (+ 대응 obs_norm_*.json)
+    nav_mode: "hybrid"
     grid_topic: "/local_grid"
     occ_threshold: 50
     allow_diag: true
-    replan_period: 2.0    # 3.0→1.0→2.0: 50×50 환경에서 path thrashing 완화. A* ~8ms/call, replan 스레드 독립.
-    rl_front_deg: 90.0            # 정면 섹터 ±각도 (정면/front-left/front-right 분할 기준)
-    # 구간 거리 집계: min=스파이크에 민감, mean/median=지면·메시 스치 완화. 비상 제동은 항상 min.
-    lidar_sector_agg: "median"
-    # #2: 로터 암 각도 마스크
-    # 목적: PPO policy obs 품질 보호 + RL 진입 오판 방지
-    #   - ±59°/±123° 빔이 ~0.2m로 입력되면 policy가 그 방향을 장애물로 오인식
-    #   - rl_front_deg=90° 섹터에 ±59° 포함 → 암 자기감지가 RL 조기 진입 유발
-    #   ※ emergency brake(±30°)에는 무관 (암 각도가 ±30° 밖)
-    # iris.sdf 실측: rotor_0(0.13,-0.22), rotor_1(-0.13,0.20), rotor_2(0.13,0.22), rotor_3(-0.13,-0.20)
-    arm_mask_angles_deg: [59.4, 123.0, 237.0, 301.0]  # atan2 기준 (body frame)
-    arm_mask_half_width_deg: 12.0                       # 실폭 ±7° + 여유
-    # lidar_range_min_override: 정면 drone body/frame 자기감지(±30°, 0.24~0.31m) 방어
-    # ⚠ empty world 테스트 (2026-04-14): lidar_range_min_override=0.2로 낮추자 d_front=0.24~0.31m 자기감지로 emergency brake 재발 확인 → 0.35m 유지
-    lidar_range_min_override: 0.35
-    emergency_brake_dist: 0.0     # 0.4→0.0: emergency brake 비활성화 (occupancy grid 기반 회피로 충분)
-    emergency_brake_deg: 30.0     # 회전 방향 결정용 좌/우 섹터
-    heading_align_tol: 0.26       # rad (~15°): heading 정렬 허용 오차
-    goal_bias_dist: 2.5           # ppo 모드: 장애물 이 거리(m) 이상이면 yaw_rate 감소 (빙글빙글 방지)
-    goal_bias_yaw_scale: 0.25     # ppo 모드: goal_bias_dist 이상일 때 yaw_rate 스케일
-    ppo_frame_skip: 6             # ppo 모드: PPO 추론 주기 (tick). 학습 dt=0.3s @ 20Hz tick = 6 (default).
-                                  # 1=매 tick(현행 zigzag 양상), 6=학습 매칭(권장), 12=보수적(응답성↓ 안정성↑).
-                                  # PX4 setpoint는 항상 20Hz 발행 (lockstep). astar/hybrid 모드는 무영향.
-    planner_max_yaw_rate: 1.5     # 1.0→1.5: planner 전용 회전 속도 상한 (rad/s). 코너 회전 시간 1/1.5배 단축.
-                                  # _publish에서 nav_mode=="astar"일 때만 이 한도 적용 (PPO는 max_yaw_rate=1.0 유지).
-                                  # 10Hz LiDAR 기준 1.5×0.1s=8.6°/scan 회전 → 격자 왜곡 약간 증가하나 허용 범위.
-    path_lookahead_steps: 3        # 비상제동 회전방향(좌/우) 결정 전용(_path_lookahead_wp): 정면 벽 감지 시 N칸 앞 경로점이 좌/우 어디인지로 회전방향 판정. wp 추종(astar/hybrid 공통)은 거리 기반 hybrid_lookahead_dist_m이 담당하므로 이 값은 추종 정확도와 무관.
-    # hybrid 모드 PPO obs용 경로 lookahead 거리 (m).
-    # norm_scale은 학습값(3.0)으로 고정 — policy 입력 분포 유지.
-    # 3.0: 기존 동작 (통로 너머까지 꺾일 수 있음)
-    # 1.5: 좁은 통로 직전에서 더 가까운 지점을 가리켜 벽 방향 velocity 성분 억제 (R 코스 튜닝)
-    hybrid_lookahead_dist_m: 1.0  # 1.5→1.0: Fix 2 start_idx+1 반환과 시너지. 코너 방향 더 정확히 지향.
+    replan_period: 1.0      # A* 재계획 주기 (A* ~8ms/call, 독립 스레드)
+    rl_front_deg: 90.0
+    lidar_range_min_override: 0.35   # 자기감지(body/암 ~0.25m) 방어: 이 미만 반사 → max_range
 
-    # --- TopoTraj 스타일 경로 개선 ---
-    # shortcutting + smoothing: use_topo_diversity=false여도 항상 적용
+    emergency_brake_dist: 0.0     # 0 = 비활성 (grid 회피로 충분)
+    emergency_brake_deg: 30.0
+
+    planner_max_yaw_rate: 1.0     # astar 전용 회전 상한. 모드 간 동일(ppo/hybrid는 max_yaw_rate=1.0)
+    hybrid_lookahead_dist_m: 1.0  # 경로 lookahead 거리 (astar/hybrid wp 추종 + 비상제동 회전방향). 작을수록 코너 방향 정확
+
+    # 경로 후처리 (LOS shortcut + B-spline)
     smooth_bspline_enabled: true
-    smooth_bspline_s: 0.0             # 0.0=보간(경유점 통과, clearance 보장), >0이면 근사(코너 단축으로 벽 접근 가능)
-    smooth_bspline_output_points: 50  # 경로 ~20m 기준 점 간격 ~0.4m
-    wp_advance_search_window: 10      # Fix 1 세그먼트 투영 탐색 창 (wp 수)
-    smooth_bspline_skip_if_few_wps: 3  # 4→3: shortcut 후 3-wp 경로(start→routing→goal)에도 smoothing 적용
-    shortcut_los_clearance_cells: 1  # astar_min_inflation_cells와 일치 유지
-    # 위상 경로 다양성: 기본 비활성 (true 시 장애물 우회 방향 다양성 확보)
-    use_topo_diversity: false
+    smooth_bspline_s: 0.0             # 0 = 보간(경유점 통과)
+    smooth_bspline_output_points: 50
+    wp_advance_search_window: 10
+    smooth_bspline_skip_if_few_wps: 3
+    shortcut_los_clearance_cells: 1   # astar_min_inflation_cells와 일치
+    astar_min_inflation_cells: 1      # × resolution ≥ 경로-벽 여유. 좁은 통로는 자동 fallback
 
-    # astar_min_inflation_cells × resolution(0.2m) ≥ emergency_brake_dist(0.5m) 보장 필수.
-    # 3 × 0.2 = 0.6m > 0.5m → 계획 경로가 브레이크 구역 밖에 위치.
-    # 좁은 통로(S 코스 2m 복도 등)에서는 3→2→1 자동 fallback으로 경로 생성 유지.
-    astar_min_inflation_cells: 1  # 2→3: 경로-벽 여유 0.4m→0.6m (emergency_brake_dist=0.5m 초과 보장)
-    topo_inflation_radii_cells: [0, 1, 2]
-    topo_homotopy_samples: 10
-    enable_altitude_hold: true   # 고도 유지 (_hold_z = ARM 시점 z)
-    altitude_hold_margin: 0.1    # 이 오차(m) 이내면 vz 보정 안 함
-    altitude_hold_gain: 0.4      # vz = gain * (target - current), 클리핑 ±0.5
+    # 고도 유지
+    enable_altitude_hold: true
+    altitude_hold_margin: 0.1
+    altitude_hold_gain: 0.4      # vz = gain*(target−current), ±0.5 클립
 
-    # --- OFFBOARD 조건 (체크리스트 2) ---
-    setpoint_rate_hz: 20.0                  # 2Hz 이상 필수 (권장 10~20Hz)
-    pre_setpoint_sec: 2.0                   # OFFBOARD 진입 전 setpoint 선행 전송 시간
+    # OFFBOARD
+    setpoint_rate_hz: 20.0       # ≥2Hz 필수 (권장 10~20)
+    pre_setpoint_sec: 2.0
 
-    # --- 모델 경로 (share/.../models 또는 절대경로) ---
-    policy_path: ""                         # 비우면 share/px4_rl_offboard_mavros/models/policy_ts.pt 사용
-    obs_norm_path: ""                       # 비우면 share/.../models/obs_norm.json 사용
+    policy_path: ""              # 비우면 nav_mode별 default (share/.../models/)
+    obs_norm_path: ""
 
-    # --- obs_norm.json env_params (학습과 일치) ---
+    # env_params (학습과 일치)
     obs_beams: 64
     max_range: 10.0
     world_size: 20.0

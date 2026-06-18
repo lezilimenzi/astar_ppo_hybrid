@@ -1,28 +1,11 @@
 #!/usr/bin/env python3
 """
-env_2d_nav_ppo_only.py
+env_2d_nav.py 의 PPO-only ablation 변형 (A*+PPO 하이브리드 vs 순수 PPO 학습 차이 비교용 baseline).
+parent 와 dynamics/C2 보상/커리큘럼/평가 시나리오/lidar/BFS 거리맵 모두 동일.
+차이: A* 경로 계산·replan·waypoint·lookahead obs 제거 → goal_rel = 항상 최종 goal body-frame
+(parent 의 use_astar_lookahead=False 분기와 동일). BFS 거리맵은 보상 shaping 용(A* 아님)으로 유지.
 
-env_2d_nav.py 의 PPO-only ablation 변형.
-- 목적: A* + PPO 하이브리드(lookahead obs)와 순수 PPO 의 "학습 차이"를 비교하기 위한 baseline.
-- env_2d_nav.py 와 모든 변수/로직을 동일하게 유지하되, A* 경로가 obs(goal_rel)에
-  hybrid 로 섞이는 부분만 제거했다.
-  - 제거: A* 경로 계산/replan/waypoint advance, lookahead 기반 goal_rel, 관련 생성자 인자
-  - 유지: dynamics(dt/v/yaw), C2 보상(collision/BFS-progress/success), 커리큘럼,
-          모든 평가 시나리오, lidar 시뮬, BFS 거리맵(보상 shaping 용 — A* 아님)
-- obs 의 goal_rel: 항상 "최종 goal 의 body-frame (dx,dy) / world_size" (env_2d_nav 의
-  use_astar_lookahead=False 분기와 동일).
-
-논문: PPO-based Reinforcement Learning for UAV Navigation in Urban Environments (Chikhaoui et al., 2022)
-- 충전소/배터리 의사결정(TS) 제거
-- 16개 가상센서 대신, iris_rplidar_depth.sdf에서 나오는 센서 값(거리 배열)을 쓰는 구조로 설계
-  - 학습용 stand-alone 환경에서는 ray casting으로 "LaserScan 유사 ranges"를 시뮬레이션
-  - 실제 프로젝트에서는 ROS2에서 들어오는 /scan ranges를 observation에 그대로 주입하는 방식으로 확장 가능
-
-보상 구조 (C2 정식 모델 — §30 ablation C2 = base + BFS-progress + success bonus):
-- collision: -collision_penalty
-- progress: w_progress*(prev_bfs_dist - curr_bfs_dist)  (BFS 거리 기반)
-- success: +success_reward
-(시간 압박/장애물 근접/스핀/no_progress/timeout 페널티는 C2에서 0 가중치라 제거됨)
+보상 (C2 정식 모델): collision -collision_penalty / progress w_progress*(prev_bfs-curr_bfs) / success +success_reward.
 """
 
 from __future__ import annotations
@@ -66,9 +49,8 @@ class RectObstacle:
         return self.y + self.h / 2.0
 
 
-# Gazebo `obstacle_course_light.world` [-X] S 코스 (주석: x∈[-10,-2], y∈[-10,10]).
-# 각 튜플: ENU 장애물 중심 (cx, cy), 가로·세로 크기 (w, h) = SDF <box><size> 의 x,y.
-# 학습 env는 [0, world_size]^2 이므로 COURSE_L_S_OFFSET_XY 로 평행이동 (기본 world_size=20 과 맞춤).
+# Gazebo `obstacle_course_light.world` [-X] S 코스 박스: (cx, cy, w, h) = ENU 중심·SDF <box><size>.
+# 학습 env [0, world_size]^2 로 COURSE_L_S_OFFSET_XY 평행이동 (world_size=20 정합).
 COURSE_L_S_ENU_BOXES: List[Tuple[float, float, float, float]] = [
     (-10.0, 1.0, 0.3, 18.0),  # s_outer_left
     (-6.0, 10.0, 8.0, 0.3),  # s_outer_top
@@ -83,31 +65,15 @@ COURSE_L_S_OFFSET_XY: Tuple[float, float] = (12.0, 10.0)
 
 class UAVNav2DEnv(gym.Env):
     """
-    2D UAV navigation environment (continuous position, continuous actions).
-    PPO-only variant: A* lookahead 하이브리드를 제거한 baseline (obs goal_rel = 최종 goal body-frame).
+    2D UAV 내비게이션 환경 (연속 위치·연속 액션). PPO-only baseline: goal_rel = 최종 goal body-frame.
 
-    State (observation):
-      - lidar_ranges: ray distances (obs_beams개) → downsample → [0,1] → [-1,1] 정규화
-      - goal_rel: (dx, dy) in body frame (heading-relative), normalized by world_size
-
-    Action (continuous, normalized [-1, 1]):
-      - action: (a_v, a_yaw) ∈ [-1, 1]  (C2: PPO 가 v·yaw 모두 제어)
-      - v_cmd = v_min + (a_v+1)/2*(v_max-v_min)
-      - yaw_rate_cmd = a_yaw * yaw_rate_max
-      - yaw += yaw_rate_cmd * dt, pos += v_cmd * dt * [cos(yaw), sin(yaw)]
-
-    Reward (C2 정식 모델):
-      (1) BFS progress: w_progress*(prev_bfs_dist - curr_bfs_dist)
-      (2) 성공 보너스: +success_reward
-      terminal: collision → -collision_penalty
-
-    Episode ends:
-      - success (within goal_radius)
-      - collision
-      - timeout (max_steps)
+    obs: lidar_ranges(obs_beams, downsample→[-1,1]) + goal_rel(body-frame dx,dy, world_size 정규화).
+    action: (a_v, a_yaw)∈[-1,1] (C2: PPO 가 v·yaw 모두 제어).
+      v_cmd=v_min+(a_v+1)/2*(v_max-v_min), yaw_rate=a_yaw*yaw_rate_max.
+    보상(C2): BFS progress + success bonus, terminal collision penalty.
+    종료: success(goal_radius 내) / collision / timeout(max_steps).
     """
 
-    # 클래스 상수
     _LIDAR_RAY_STEP: float = 0.2   # ray marching 스텝 크기 (m)
 
     metadata = {"render_modes": ["human"], "render_fps": 30}
@@ -123,15 +89,15 @@ class UAVNav2DEnv(gym.Env):
         fov: float = 2 * math.pi,      # 360 deg
         max_range: float = 10.0,       # r_FOV (논문에서는 rFOV)
         v_max: float = 0.8,            # v_cmd 최대 속도 (m/s)
-        v_min: float = 0.3,            # v_cmd 최소 속도 (멈춤 방지, timeout↓). 0.15→0.3: replan 주기(7 step) 내 wp 전진 보장
+        v_min: float = 0.3,            # v_cmd 최소 속도 (멈춤 방지, replan 주기 내 wp 전진 보장)
         yaw_rate_max: float = 1.0,     # yaw_rate 최대 (rad/s)
-        dt: float = 0.05,              # 시뮬 스텝 시간 (s). (§39) 배포 setpoint 20Hz 정합 (0.3→0.05)
-        goal_radius: float = 2.0,      # 1.5 → 2.0 (초반 학습 용이하게)
-        max_steps: int = 1800,         # (§39) dt 0.3→0.05 에 맞춰 6× 스케일 (시간 horizon 90s 유지)
+        dt: float = 0.05,              # 시뮬 스텝 시간 (s). 배포 setpoint 20Hz 정합
+        goal_radius: float = 2.0,      # 목표 판정 반경 (커리큘럼 시작값, 초반 학습 용이)
+        max_steps: int = 1800,         # 에피소드 상한. dt=0.05 기준 시간 horizon ~90s
         use_curriculum: bool = True,   # 커리큘럼 학습 활성화
         curriculum_levels: Optional[List[Tuple[float, float, int]]] = None,
         collision_penalty: float = 500.0,  # 충돌 페널티 (stress test collision 감소 목적)
-        success_reward: float = 800.0,  # 목표 도달 보상 (400 → 800)
+        success_reward: float = 800.0,  # 목표 도달 보상 (sparse anchor)
         w_progress: float = 50.0,        # goal로 1m 가까워지면 +50 (BFS 거리 기반)
         yaw_drift_std: float = 0.0,       # yaw 랜덤 드리프트 표준편차
         min_clearance: float = 1.0,    # 시작/목표 위치 최소 여유거리(m)
@@ -164,8 +130,7 @@ class UAVNav2DEnv(gym.Env):
         # Curriculum learning
         self.use_curriculum = bool(use_curriculum)
         if curriculum_levels is None:
-            # (goal_radius, min_clearance, num_obstacles)
-            # num_obstacles: int(고정) 또는 tuple(lo, hi) → 매 에피소드마다 rng.integers(lo, hi+1) 적용
+            # (goal_radius, min_clearance, num_obstacles); num_obstacles tuple(lo,hi)→매 에피소드 lo~hi 랜덤
             curriculum_levels = [
                 (2.0, float(min_clearance), (0, 3)),    # 단계 0: 0~3개 랜덤 (기초 내비게이션)
                 (2.0, float(min_clearance), (4, 6)),    # 단계 1: 4~6개 랜덤
@@ -218,9 +183,7 @@ class UAVNav2DEnv(gym.Env):
         self.step_count = 0
         self.prev_goal_dist = 0.0
         self._bfs_dist_map: Optional[np.ndarray] = None
-        self._bfs_cell_size: float = 0.25       # BFS 거리 맵 해상도 (m/cell)
-        # 0.5m → 0.25m: course_l_s 벽 두께 0.3m이 0.5m 그리드에서 셀 중심 미포함으로
-        # 완전히 투명하게 처리되는 버그 수정. 0.25m 이하에서 0.3m 벽 포함 보장.
+        self._bfs_cell_size: float = 0.25       # BFS 거리 맵 해상도 (m/cell). course_l_s 0.3m 벽 포함 보장 위해 ≤0.25 필요
         self.episode_reward = 0.0
 
         # For logging
@@ -231,13 +194,8 @@ class UAVNav2DEnv(gym.Env):
         self._curriculum_episode_count = 0
         self._curriculum_success_count = 0
         self._curriculum_window = 100  # 최근 100 에피소드 기준
-        # 단계별 환경 혼합 비율 (누적 경계값): normal / d15 / d20 / narrow / course_l_s
-        # stage 0: normal 100% (기초 내비게이션, stress 없음)
-        # stage 1: normal 90%, narrow  5%, course_l_s  5%
-        # stage 2: normal 70%, d15 10%, narrow 10%, course_l_s 10%
-        # stage 3: normal 45%, d15 15%, d20 10%, narrow 15%, course_l_s 15%
-        # stage 4: normal 10%, d15 20%, d20 25%, narrow 20%, course_l_s 25%
-        #   course_l_s 15%→25%: 학습 신호 확보. d20 30%→25%: 과도한 실패 경험 완화.
+        # 단계별 시나리오 혼합 비율 (단계↑일수록 stress 비중↑). 누적 경계 확률:
+        # normal → density_15 → density_20 → narrow → course_l_s
         self._stage_mix_thresholds = [
             (1.00, 1.00, 1.00, 1.00, 1.00),  # stage 0: normal 100%
             (0.90, 0.90, 0.90, 0.95, 1.00),  # stage 1: normal 90%, narrow 5%, course_l_s 5%
@@ -246,9 +204,7 @@ class UAVNav2DEnv(gym.Env):
             (0.05, 0.20, 0.55, 0.70, 1.00),  # stage 4: normal 5%, d15 15%, d20 35%, narrow 15%, course_l_s 30%
         ]
 
-    # ----------------------------
-    # Reset & Step
-    # ----------------------------
+    # --- Reset & Step ---
     def reset(self, *, seed: Optional[int] = None, options: Optional[dict] = None):
         super().reset(seed=seed)
         if seed is not None:
@@ -260,11 +216,10 @@ class UAVNav2DEnv(gym.Env):
         self._bfs_dist_map = None
         self.episode_reward = 0.0
 
-        # Curriculum learning: 성공률에 맞는 최고 단계로 한 번에 점프 (60%→1단계, 75%→2단계, 90%→4단계)
+        # 커리큘럼: 성공률 threshold 만족 시 최고 단계로 한 번에 점프
         if self.use_curriculum and self._curriculum_episode_count >= self._curriculum_window:
             success_rate = self._curriculum_success_count / max(self._curriculum_episode_count, 1)
             old_idx = self.curriculum_level_idx
-            # 현재 단계부터, 달성한 최고 threshold까지 한 번에 점프
             target_idx = old_idx
             for next_level in range(old_idx + 1, len(self.curriculum_levels)):
                 thr_idx = next_level - 1
@@ -288,7 +243,7 @@ class UAVNav2DEnv(gym.Env):
         if self.use_curriculum:
             self._apply_curriculum_level()
 
-        # 평가 전용 또는 단계별 혼합 비율 적용
+        # 평가 시나리오 또는 단계별 혼합 비율 적용
         if self.eval_scenario == "obstacle_density_15":
             self._reset_eval_obstacle_density(num_obstacles=15)
         elif self.eval_scenario == "obstacle_density_20":
@@ -349,7 +304,7 @@ class UAVNav2DEnv(gym.Env):
 
         self.pos = self._sample_free_position(min_clearance=self.min_clearance)
 
-        # num_obstacles=0: 장애물 없으므로 "obstacle 뒤 goal" 로직 불필요
+        # num_obstacles=0: "obstacle 뒤 goal" 로직 불필요
         if num_obstacles == 0:
             self.goal = self._sample_free_position(
                 min_dist=10.0, ref=self.pos, min_clearance=self.min_clearance
@@ -379,61 +334,67 @@ class UAVNav2DEnv(gym.Env):
         self.prev_goal_dist = float(np.linalg.norm(self.goal - self.pos))
 
     def _reset_eval_narrow_passage(self) -> None:
-        """평가 전용: Narrow Passage Test. 폭 1.2~1.5m 통로, goal은 통로 뒤쪽."""
-        self.obstacles = []
-        gap_width = float(self.rng.uniform(1.2, 1.5))
-        wall_thick = 0.5
-        wall_len = 12.0
-        cy = self.world_size / 2
-        left_wall_x = 8.0
-        right_wall_x = 8.0 + wall_thick + gap_width
-        self.obstacles.append(RectObstacle(x=left_wall_x + wall_thick / 2, y=cy, w=wall_thick, h=wall_len))
-        self.obstacles.append(RectObstacle(x=right_wall_x + wall_thick / 2, y=cy, w=wall_thick, h=wall_len))
+        """평가 전용: Narrow Passage. 'L 통로'(세로+가로 다리)만 자유공간으로 두고 나머지를 벽으로 채워
+        닫힌 관 구성 → 90도 꺾어 주행해야 도달. start/goal=통로 양 끝, flip 으로 4방향 랜덤화."""
+        W = self.world_size
+        for _ in range(200):
+            cw = float(self.rng.uniform(1.8, 2.4))     # 통로 폭(m)
+            vx0 = float(self.rng.uniform(2.0, 3.5))    # 세로 다리 좌측 x (코너를 구석으로)
+            hy0 = float(self.rng.uniform(2.0, 3.5))    # 가로 다리 하단 y (코너를 구석으로)
+            vy1 = float(self.rng.uniform(16.5, 18.0))  # 세로 다리 상단 y (끝점을 가장자리로)
+            hx1 = float(self.rng.uniform(16.5, 18.0))  # 가로 다리 우측 x (끝점을 가장자리로)
+            vx1, hy1 = vx0 + cw, hy0 + cw
+            flip_x = bool(self.rng.integers(0, 2))
+            flip_y = bool(self.rng.integers(0, 2))
 
-        for _ in range(2000):
-            side = self.rng.integers(0, 2)
-            if side == 0:
-                self.pos = np.array([
-                    self.rng.uniform(1.0, left_wall_x - 1.5),
-                    self.rng.uniform(3.0, self.world_size - 3.0),
-                ], dtype=np.float32)
-                self.goal = np.array([
-                    self.rng.uniform(right_wall_x + wall_thick + 1.5, self.world_size - 1.0),
-                    self.rng.uniform(3.0, self.world_size - 3.0),
-                ], dtype=np.float32)
+            def fx(x: float) -> float:
+                return W - x if flip_x else x
+
+            def fy(y: float) -> float:
+                return W - y if flip_y else y
+
+            def box(xmin: float, xmax: float, ymin: float, ymax: float) -> RectObstacle:
+                xs = sorted([fx(xmin), fx(xmax)])
+                ys = sorted([fy(ymin), fy(ymax)])
+                return RectObstacle(
+                    x=(xs[0] + xs[1]) / 2.0, y=(ys[0] + ys[1]) / 2.0,
+                    w=xs[1] - xs[0], h=ys[1] - ys[0],
+                )
+
+            # L 통로를 제외한 영역을 5개 벽으로 감싸 닫힌 관 구성
+            self.obstacles = [
+                box(0.0, W, 0.0, hy0),      # 아래
+                box(0.0, W, vy1, W),        # 위
+                box(0.0, vx0, hy0, vy1),    # 왼쪽
+                box(vx1, W, hy1, vy1),      # 안쪽(세로 다리 우측 · 가로 다리 위)
+                box(hx1, W, hy0, hy1),      # 가로 다리 우측 막음
+            ]
+
+            # 통로 양 끝점: 세로 다리 상단 / 가로 다리 우측
+            end_v = np.array([fx((vx0 + vx1) / 2.0), fy(vy1 - 0.9)], dtype=np.float32)
+            end_h = np.array([fx(hx1 - 0.9), fy((hy0 + hy1) / 2.0)], dtype=np.float32)
+            if self.rng.integers(0, 2):
+                self.pos, self.goal = end_v.copy(), end_h.copy()
             else:
-                self.pos = np.array([
-                    self.rng.uniform(right_wall_x + wall_thick + 1.5, self.world_size - 1.0),
-                    self.rng.uniform(3.0, self.world_size - 3.0),
-                ], dtype=np.float32)
-                self.goal = np.array([
-                    self.rng.uniform(1.0, left_wall_x - 1.5),
-                    self.rng.uniform(3.0, self.world_size - 3.0),
-                ], dtype=np.float32)
-            if not self._check_collision(self.pos) and not self._check_collision(self.goal):
-                if float(np.linalg.norm(self.goal - self.pos)) >= 7.0:
-                    if self._is_reachable_bfs(self.pos, self.goal, cell_size=0.2):
-                        break
+                self.pos, self.goal = end_h.copy(), end_v.copy()
+
+            if self._check_collision(self.pos) or self._check_collision(self.goal):
+                continue
+            if self._is_reachable_bfs(self.pos, self.goal, cell_size=0.2):
+                break
         self.prev_goal_dist = float(np.linalg.norm(self.goal - self.pos))
 
     def _reset_course_l_s(self) -> None:
-        """
-        Gazebo `obstacle_course_light.world` Course L(S 코스) 박스를 env 좌표로 옮겨 고정 배치.
-        스폰: +X 쪽 통로 접근(동쪽, 대략 스폰 근처), 목표: S 코스 남서부 자유공간 — BFS 도달 가능 쌍만 채택.
-        """
+        """평가 전용: Course L(S 코스) 박스를 env 좌표로 고정 배치. BFS 도달 가능한 start/goal 쌍만 채택."""
         ox, oy = COURSE_L_S_OFFSET_XY
         self.obstacles = []
         for cx, cy, w, h in COURSE_L_S_ENU_BOXES:
             self.obstacles.append(RectObstacle(x=cx + ox, y=cy + oy, w=w, h=h))
 
-        # 3단계 커리큘럼 spawn:
-        # ultra-easy(50%): goal과 같은 corridor (x=4.2~5.7, y=0.5~5.5) → BFS ~3-8m, 완주 가능
-        #   inner_s_v4(x=6, y=0-8) 왼쪽 + inner_s_v2(x=4, y=6-14) 아래쪽 영역
-        # medium(40%): v4 경계 근방 (x=5.5~8.0, y=0.5~5.5) → BFS ~8-15m
-        #   x<5.85(v4 서쪽): ultra-easy 인접 단거리. x>6.15(v4 동쪽): v4 북단 우회 필요.
-        #   min_goal_dist=5.0이 x<5.85 단거리 스폰 대부분 필터 → 사실상 v4 동쪽 8~15m 지배
-        # hard(10%): 원거리 spawn (x=15~19, y=12~19) → BFS ~50m, 전체 S-커브 탐색
-        #   25%→10%: 150 step 내 완주 불가 구조로 no_progress 100% 수렴 → 학습 신호 희석 방지
+        # 3단계 커리큘럼 spawn (goal과 같은 corridor 근처일수록 완주 쉬움):
+        # easy(50%): BFS ~3-8m, 완주 가능 / medium(30%): min_goal_dist=5.0 으로 v4 동쪽 8~15m 지배
+        # hard(20%): 원거리 BFS ~50m 전체 S-커브 탐색. hard 비율 낮게 유지 —
+        #   완주 불가 구조라 비중 크면 no_progress 로 수렴해 학습 신호 희석.
         r = self.rng.random()
         if r < 0.50:
             spawn_x = (4.2, 5.7)
@@ -552,9 +513,7 @@ class UAVNav2DEnv(gym.Env):
 
         return obs, reward, terminated, truncated, info
 
-    # ----------------------------
-    # BFS 유틸리티
-    # ----------------------------
+    # --- BFS 유틸리티 ---
     def _build_obstacle_grid(self, cell_size: float) -> Tuple[np.ndarray, int]:
         """numpy 벡터화로 장애물 그리드 생성. 반환: (grid[n,n], n)"""
         n = int(math.ceil(self.world_size / cell_size))
@@ -653,9 +612,7 @@ class UAVNav2DEnv(gym.Env):
 
         return reward, lidar
 
-    # ----------------------------
-    # Observation: "Real sensor friendly"
-    # ----------------------------
+    # --- Observation ---
     def _get_obs(self, *, lidar: Optional[np.ndarray] = None) -> np.ndarray:
         if lidar is None:
             lidar = self._lidar_ranges(self.pos, self.yaw)  # [0, max_range]
@@ -664,8 +621,7 @@ class UAVNav2DEnv(gym.Env):
         # map to [-1,1] for NN friendliness
         lidar_norm = lidar_norm * 2.0 - 1.0
 
-        # goal_rel: body-frame target 의 (dx, dy) 정규화.
-        # PPO-only baseline: A* lookahead 제거 — final goal 을 target, world_size 로 정규화.
+        # goal_rel: PPO-only baseline — A* lookahead 제거, final goal 을 target 으로 body-frame 정규화.
         target = self.goal.astype(np.float32)
         norm_scale = self.world_size
         dx_world = (target - self.pos).astype(np.float32)
@@ -686,17 +642,14 @@ class UAVNav2DEnv(gym.Env):
             "dist_to_goal": float(np.linalg.norm(self.goal - self.pos)),
         }
 
-    # ----------------------------
-    # Obstacle generation & collision
-    # ----------------------------
+    # --- Obstacle generation & collision ---
     def _min_lidar_at(self, pos: np.ndarray) -> float:
         """pos에서 전방위 lidar의 최소 거리(m). clearance 체크용."""
         return float(np.min(self._lidar_ranges(pos, 0.0)))
 
     def _reset_normal_scenario(self) -> None:
         """커리큘럼 normal 에피소드: 장애물 랜덤 생성 + pos/goal 샘플링."""
-        # stage 4(idx=4)에서 normal 에피소드의 50%는 0~5개 장애물로 실행
-        # → obs=0~5 환경을 학습 분포에 포함시켜 eval domain gap 해소
+        # stage 4: normal 50%를 0~5개 장애물로 → 저밀도 환경 학습 분포 포함, eval domain gap 해소
         if self.curriculum_level_idx == 4 and self.rng.random() < 0.50:
             saved = self.num_obstacles
             self.num_obstacles = int(self.rng.integers(0, 6))
@@ -775,15 +728,10 @@ class UAVNav2DEnv(gym.Env):
                 return True, p.astype(np.float32), "obstacle"
         return False, None, "none"
 
-    # ----------------------------
-    # Lidar simulation (LaserScan-like ranges)
-    # ----------------------------
+    # --- Lidar simulation (LaserScan-like ranges) ---
     def _lidar_ranges(self, p: np.ndarray, yaw: float) -> np.ndarray:
-        """
-        num_beams개 레이에 대해 ray marching으로 거리 반환 (max_range로 클리핑).
-        numpy 벡터화로 구현: (num_beams, max_steps) 배열 일괄 처리.
-        실제 배포 시 ROS2 /scan.ranges를 observation에 주입하는 방식으로 교체 가능.
-        """
+        """num_beams 레이 ray marching 거리 (max_range 클리핑), numpy 벡터화.
+        배포 시 ROS2 /scan.ranges 주입으로 교체 가능."""
         ray_step = self._LIDAR_RAY_STEP
         max_steps = int(self.max_range / ray_step)
 

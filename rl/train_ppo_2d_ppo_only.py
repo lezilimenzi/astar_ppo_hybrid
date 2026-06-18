@@ -3,36 +3,14 @@
 """
 train_ppo_2d_ppo_only.py
 
-train_ppo_2d.py 의 PPO-only ablation 변형.
-- train_ppo_2d.py 와 학습 로직/하이퍼파라미터/콜백/평가 전부 동일.
-- 유일한 차이: env 를 env_2d_nav_ppo_only.UAVNav2DEnv 로 import (A* lookahead 하이브리드 제거 baseline).
-- 목적: hybrid(A*+PPO) vs ppo_only 의 학습 차이 비교.
+train_ppo_2d.py 의 PPO-only ablation 변형. 학습 로직/하이퍼파라미터/콜백/평가는
+parent 와 동일하며, 유일한 차이는 env 를 env_2d_nav_ppo_only.UAVNav2DEnv 로 import
+(A* lookahead 하이브리드 제거 baseline). 목적: hybrid(A*+PPO) vs ppo_only 비교.
 
-논문 구조 기반 PPO 학습 + (선택) 평가 자동 실행 + (선택) 베스트 모델 저장.
-
-핵심:
-- PPO의 Advantage(GAE) + Trust Region(clip) 업데이트는 SB3 PPO가 수행
-- V(s): critic value (rollout_buffer.values)
-- A(s,a): rollout_buffer.advantages
-- Q(s,a): 정의상 Q = V + A 로 추정치 로깅 가능
-
-추가 기능:
-1) 학습 종료 후 eval 자동 실행 (--do_eval)
-2) 학습 중 주기적 eval로 best_model 저장 (--eval_freq, --save_best)
-3) 학습 종료 시 직전보다 좋으면 ppo_uav2d_best_training.zip 저장
+SB3 PPO 학습 + 주기/최종 평가 자동 실행 + best 모델 저장. Q 추정치는 정의상 Q=V+A 로 로깅.
 
 사용 예:
-  # 기본 학습
-  python3 train_ppo_2d_ppo_only.py
-
-  # 학습 후 평가까지 한 번에
   python3 train_ppo_2d_ppo_only.py --do_eval --eval_runs 300 --eval_obstacles 0 5 10
-
-  # 학습 중 주기적 eval + best_model 저장
-  python3 train_ppo_2d_ppo_only.py --eval_freq 200000 --save_best --eval_runs 100 --eval_obstacles 8
-
-  # 6M 학습 후 best_model로 3M 추가 학습 (fine-tune 보수 모드)
-  python3 train_ppo_2d_ppo_only.py --resume_model ./models_ppo_2d/best_model --additional_timesteps 3000000 --learning_rate 5e-5 --clip_range 0.12 --target_kl 0.01 --n_epochs 5 --eval_freq 200000 --save_best
 """
 
 import os
@@ -53,13 +31,9 @@ from env_2d_nav_ppo_only import UAVNav2DEnv
 import torch
 
 
-# -----------------------------
 # Config
-# -----------------------------
 @dataclass
 class TrainConfig:
-    # Env
-
     # PPO
     n_envs: int = 8
     total_timesteps: int = 6_000_000
@@ -67,10 +41,10 @@ class TrainConfig:
     n_steps: int = 2048
     batch_size: int = 256
     n_epochs: int = 10
-    gamma: float = 0.9983  # (§39-13) dt 0.3→0.05 보정: 0.99^(1/6)≈0.9983 → 실시간 discount horizon(~30s) 보존
+    gamma: float = 0.9983  # 0.99^(1/6). dt=0.05 에서 실시간 discount horizon(~30s) 보존
     gae_lambda: float = 0.95
     clip_range: float = 0.2
-    ent_coef: float = 0.03  # 0.08 → 0.01 (후반 수렴, scheduling 적용)
+    ent_coef: float = 0.03  # 초기 ent_coef (AdaptiveEntropy 콜백이 학습 중 동적 조정)
     vf_coef: float = 0.5
     max_grad_norm: float = 0.5
 
@@ -84,9 +58,7 @@ class TrainConfig:
     checkpoint_freq_timesteps: int = 500_000  # global timesteps 기준
 
 
-# -----------------------------
 # Utility: evaluation
-# -----------------------------
 @dataclass
 class EvalMetrics:
     runs: int
@@ -126,7 +98,7 @@ def make_single_env(
         seed=seed,
         eval_scenario=eval_scenario,
         eval_sensor_noise=eval_sensor_noise,
-        use_curriculum=False,      # eval env는 커리큘럼 미사용: num_obstacles/goal_radius 고정
+        use_curriculum=False,      # eval: num_obstacles/goal_radius 고정
         curriculum_verbose=False,
     )
     env = UAVNav2DEnv(**env_kwargs)
@@ -222,14 +194,14 @@ def evaluate_model(
         steps_list.append(ep_steps)
         dist_list.append(traveled)
 
-        # 주기적 통계 출력 (마지막 에피소드는 caller의 summary에서 출력하므로 제외)
+        # 주기적 통계 출력 (마지막 에피소드는 caller summary에서 출력하므로 제외)
         if print_every > 0 and (ep + 1) % print_every == 0 and (ep + 1) < runs:
             total = ep + 1
             reached_rate = success / total
             collision_rate = collision / total
             no_progress_rate = no_progress / total
             timeout_rate = timeout / total
-            # 평가 시나리오/sensor_noise는 장애물 수와 무관 → 의미 있는 라벨 사용
+            # scenario/sensor_noise는 장애물 수와 무관 → 의미 있는 라벨 사용
             if print_label is not None:
                 label = print_label
             elif eval_scenario:
@@ -270,9 +242,7 @@ def print_eval_summary(scenario: str, m: EvalMetrics, prefix: str = "") -> None:
     )
 
 
-# -----------------------------
 # Callbacks
-# -----------------------------
 class EntCoefScheduleCallback(BaseCallback):
     """
     ent_coef 적응형 조정:
@@ -281,14 +251,14 @@ class EntCoefScheduleCallback(BaseCallback):
     - low_thr: entropy_loss 가 이보다 높으면(entropy 낮으면) boost 발동
     - high_thr: entropy_loss 가 이보다 낮으면(entropy 충분하면) base 복귀
     - cooldown: boost/복귀 후 최소 N rollout 동안 상태 유지 (진동 방지)
-    - ceil_thr/floor_coef: (§40 B) entropy 천장 가드. entropy_loss < ceil_thr(과탐험)이면
+    - ceil_thr/floor_coef: entropy 천장 가드. entropy_loss < ceil_thr(과탐험)이면
       boost/cooldown 상태와 무관하게 ent_coef 를 floor_coef 로 하드캡해 std 런어웨이 차단.
     - fixed_ent_coef: 지정 시 adaptive 무시하고 고정값 유지 (--ent_coef 인자)
     """
 
     def __init__(
         self,
-        total_timesteps: int,           # 미사용 (하위호환 유지)
+        total_timesteps: int,           # 미사용 (하위호환)
         base_coef: float = 0.004,
         boost_coef: float = 0.03,
         low_thr: float = -0.6,
@@ -326,8 +296,8 @@ class EntCoefScheduleCallback(BaseCallback):
         if entropy_loss is None:
             return  # 첫 rollout은 아직 기록 없음
 
-        # (§40 B) entropy 천장 가드 (최우선): std 가 과도(entropy_loss < ceil_thr)하면
-        # boost/cooldown 무시하고 floor 로 하드캡. base 로도 못 잡는 런어웨이를 차단.
+        # 천장 가드(최우선): std 과도(entropy_loss < ceil_thr)면 boost/cooldown 무시하고
+        # floor 로 하드캡. base 로도 못 잡는 런어웨이 차단.
         if entropy_loss < self.ceil_thr:
             if not self._capped and self.verbose:
                 print(f"[AdaptiveEnt] entropy_loss={entropy_loss:.3f} < ceil {self.ceil_thr}"
@@ -337,7 +307,7 @@ class EntCoefScheduleCallback(BaseCallback):
             self._boosted = False
             return
         if self._capped:
-            # 가드 해제(entropy 정상 복귀) → base 로 복귀하고 토글 로직 재개
+            # 가드 해제(entropy 정상 복귀) → base 복귀 후 토글 로직 재개
             self._capped = False
             self.model.ent_coef = self.base_coef
             self._cooldown_count = self.cooldown
@@ -421,7 +391,7 @@ class EpisodeStatsCallback(BaseCallback):
         return True
 
     def _on_rollout_end(self) -> None:
-        # Advantage/Value/Q 추정치(정의 기반) 로깅
+        # V/A/Q 추정치 로깅 (Q=V+A)
         try:
             rb = self.model.rollout_buffer
             adv = rb.advantages
@@ -433,7 +403,7 @@ class EpisodeStatsCallback(BaseCallback):
             pass
 
 
-# best_model 가중치 (합 1.0): obs + density + narrow + Gazebo obstacle_course_light Course L(S)
+# best_model 가중치 (합 1.0): obs + density + narrow + Gazebo Course L(S)
 EVAL_SCORE_WEIGHTS = {
     "obs_0": 0.08,
     "obs_5": 0.08,
@@ -448,11 +418,7 @@ EVAL_SCORE_WEIGHTS = {
 class PeriodicEvalCallback(BaseCallback):
     """
     학습 중 주기적 평가 + (옵션) best_model 저장.
-
-    - eval_freq: timesteps 단위 (전역 timesteps)
-    - eval_runs: 평가 에피소드 수
-    - save_best: 가중 점수(obs + stress + course_l_s) 기준으로 best_model.zip 저장
-      score = EVAL_SCORE_WEIGHTS 합성 (TensorBoard eval/*_success_rate 동기)
+    save_best 은 EVAL_SCORE_WEIGHTS 가중 점수(obs + stress + course_l_s) 기준.
     """
 
     def __init__(
@@ -549,9 +515,7 @@ class PeriodicEvalCallback(BaseCallback):
         return True
 
 
-# -----------------------------
 # Final evaluation helper
-# -----------------------------
 def _run_final_evaluation(
     model: PPO,
     cfg: TrainConfig,
@@ -618,7 +582,7 @@ def _run_final_evaluation(
     else:
         print(f"Training result (weighted_score={weighted_score:.4f}) <= prev best ({prev_best:.4f}), best_training not updated")
 
-    # sensor_noise는 점수에 포함되지 않으므로 do_eval 시에만 추가 실행
+    # sensor_noise는 점수 미포함 → do_eval 시에만 추가 실행
     if args.do_eval:
         m = evaluate_model(
             model=model,
@@ -635,23 +599,19 @@ def _run_final_evaluation(
         print("=== End Evaluation ===")
 
 
-# -----------------------------
 # Env factory (train)
-# -----------------------------
 def make_env(cfg: TrainConfig, rank: int, seed: int):
     def _init():
         env = UAVNav2DEnv(
             seed=seed + rank,
-            curriculum_verbose=(rank == 0),  # rank 0만 curriculum 로그 출력 (8회 중복 방지)
+            curriculum_verbose=(rank == 0),  # rank 0만 로그 (8회 중복 방지)
         )
         return Monitor(env)
 
     return _init
 
 
-# -----------------------------
 # Main
-# -----------------------------
 def parse_args() -> argparse.Namespace:
     p = argparse.ArgumentParser()
 
@@ -683,20 +643,18 @@ def parse_args() -> argparse.Namespace:
         help="(resume_model과 함께) 추가로 학습할 step 수. 이전 학습에서 이어서 학습.",
     )
     p.add_argument("--ent_coef", type=float, default=None, help="고정 ent_coef (지정 시 adaptive 무시)")
-    # (§40 A) base 0.01→0.004: C2_dt05(base 0.01)는 dt=0.05 에서 base 만으로도 std 가
-    # 5.0 까지 폭주(후반 explained_variance 0.93→0.70, clip_fraction 0.025). boost 0.03 은
-    # 빠른 수렴에 유리하므로 유지하되, hold 단계인 base 를 entsqrt(0.004) 수준으로 낮춰 std~0.4 유지.
-    p.add_argument("--ent_base_coef", type=float, default=0.004, help="adaptive ent_coef 기본값 (entropy 충분 시, hold). §40 A: 0.01→0.004")
+    # 비대칭 base/boost: hold 단계 base 를 낮춰(0.004) dt=0.05 에서의 std 폭주를 막고,
+    # push 단계 boost(0.03)는 빠른 수렴을 위해 유지.
+    p.add_argument("--ent_base_coef", type=float, default=0.004, help="adaptive ent_coef 기본값 (entropy 충분 시, hold)")
     p.add_argument("--ent_boost_coef", type=float, default=0.03, help="adaptive ent_coef 상향값 (entropy 부족 시, push)")
     p.add_argument("--ent_low_thr", type=float, default=-0.6, help="entropy_loss 이보다 높으면 boost 발동")
     p.add_argument("--ent_high_thr", type=float, default=-0.9, help="entropy_loss 이보다 낮으면 base 복귀")
     p.add_argument("--ent_cooldown", type=int, default=10, help="boost/복귀 후 최소 유지 rollout 수")
-    # (§40 B) entropy 천장 가드: base 로도 std 가 새면(과탐험) floor 로 하드캡해 런어웨이 차단.
+    # entropy 천장 가드: base 로도 std 가 새면(과탐험) floor 로 하드캡해 런어웨이 차단.
     p.add_argument("--ent_ceil_thr", type=float, default=-2.5, help="entropy_loss 이보다 낮으면(≈std>0.65, 과탐험) ent_coef 를 floor 로 하드캡 (boost/cooldown 무시)")
     p.add_argument("--ent_floor_coef", type=float, default=0.001, help="천장 가드 발동 시 강제 ent_coef (std 런어웨이 차단)")
 
-    # 출력 디렉토리 override (미지정 시 cfg 기본값: ./logs_ppo_2d, ./models_ppo_2d)
-    # best_model.zip / ppo_uav2d_best_training.zip / checkpoint / vecnormalize 모두 save_dir 로 저장됨
+    # 출력 디렉토리 override: best_model/best_training/checkpoint/vecnormalize 모두 save_dir 기준
     p.add_argument("--log_dir", type=str, default=None, help="TensorBoard 로그 디렉토리 (default: ./logs_ppo_2d)")
     p.add_argument("--save_dir", type=str, default=None, help="모델/체크포인트 저장 디렉토리 (default: ./models_ppo_2d)")
 
@@ -718,7 +676,6 @@ def main():
     cfg.n_envs = int(args.n_envs)
     cfg.seed = int(args.seed)
 
-    # 출력 디렉토리 override (best_model/checkpoint/final/vecnormalize 모두 save_dir 기준)
     if args.log_dir is not None:
         cfg.log_dir = str(args.log_dir)
     if args.save_dir is not None:
@@ -748,24 +705,18 @@ def main():
     else:
         env = VecNormalize(env, norm_obs=True, norm_reward=True, clip_reward=10.0)
 
-    # checkpoint save_freq는 Subproc일 때 env step 단위 차이를 감안해 분할
+    # checkpoint save_freq: Subproc 시 per-env step 단위라 n_envs 로 분할
     if cfg.n_envs > 1:
         save_freq = max(int(cfg.checkpoint_freq_timesteps // cfg.n_envs), 1)
     else:
         save_freq = int(cfg.checkpoint_freq_timesteps)
 
-    # (dt 비례 ent_coef 스케일) ent_coef 기본값(init/base/boost)은 dt=0.3 에서 튜닝됨.
-    # dt 가 작아지면 한 action 이 궤적에 미치는 영향이 ~dt 로 줄어 per-step advantage(std↓ 힘)가
-    # 약해지는데, ent_coef(std↑ 힘)는 고정이라 균형이 깨져 policy std 가 발산함.
-    # → init/base/boost 를 dt 비례로 축소해 균형 유지. adaptive 토글 로직(boost↔base)은 그대로.
-    # 단 선형(dt/0.3)은 과보정(std 0.13 정지)이라 sqrt 사용: norm_reward=True 가 per-step
-    # 보상 스케일을 일부 정규화해 실제 필요 축소가 선형보다 완만함. 목표 std ~0.5~1.0.
-    # (C2_dt05.log 기준) dt-scale 비활성: C2_dt05.log 는 sqrt/linear dt-scale 없이
-    # raw base=0.01 / boost=0.03 (init 0.03) 로 학습됨. entsqrt(×0.408)·v2(×0.167) 와
-    # 구분하기 위해 _ent_scale=1.0 으로 고정해 C2_dt05.log 와 동일한 ent_coef 를 재현한다.
-    _ENT_REF_DT = 0.3  # ent_coef 기본값이 튜닝된 기준 dt
+    # (선택) dt 비례 ent_coef 스케일 훅. ent_coef 는 dt=0.3 기준 튜닝값이라 dt 가 작아지면
+    # per-step advantage(std↓)는 약해지나 ent_coef(std↑)는 고정이라 std 발산 위험. 필요 시
+    # _ent_scale 로 init/base/boost 를 축소(toggle 로직 불변). 현재는 채택 모델 재현 위해 1.0.
+    _ENT_REF_DT = 0.3  # ent_coef 튜닝 기준 dt
     _env_dt = float(UAVNav2DEnv().dt)
-    _ent_scale = 1.0  # C2_dt05.log 재현: dt-scale 미적용 (이전 sqrt: (_env_dt/_ENT_REF_DT)**0.5)
+    _ent_scale = 1.0  # dt-scale 미적용 (sqrt 스케일이면 (_env_dt/_ENT_REF_DT)**0.5)
     if abs(_ent_scale - 1.0) > 1e-9:
         cfg.ent_coef *= _ent_scale
         args.ent_base_coef = float(args.ent_base_coef) * _ent_scale
@@ -814,9 +765,7 @@ def main():
 
     callbacks = CallbackList(cb_list)
 
-    # PPO model
-    # 비대칭 net_arch: critic(vf)을 policy(pi)보다 넓게 → explained_variance 개선 목적
-    # pi: [64,64] 유지 (actor는 경량 유지), vf: [256,256,128] (value function 표현력 확대)
+    # 비대칭 net_arch: vf 를 pi 보다 넓게(pi=[64,64], vf=[256,256,128]) → explained_variance 개선
     policy_kwargs = dict(
         log_std_init=-2.0,
         net_arch=dict(pi=[64, 64], vf=[256, 256, 128]),

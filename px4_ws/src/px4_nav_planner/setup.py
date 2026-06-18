@@ -28,9 +28,7 @@ setup(
     tests_require=['pytest'],
     entry_points={
         'console_scripts': [
-'course_goal_publisher_node = px4_nav_planner.nodes.course_goal_publisher_node:main',
-'astar_apf_planner_node = px4_nav_planner.nodes.astar_apf_planner_node:main',
-            'astar_apf_planner2_node = px4_nav_planner.nodes.astar_apf_planner2_node:main',
+            'course_goal_publisher_node = px4_nav_planner.nodes.course_goal_publisher_node:main',
         ],
     },
 )

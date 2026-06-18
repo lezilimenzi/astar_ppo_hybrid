@@ -3,7 +3,6 @@
 
 from __future__ import annotations
 
-import concurrent.futures
 import heapq
 import json
 import math
@@ -70,11 +69,9 @@ class RLOffboardNode(Node):
     def __init__(self):
         super().__init__("rl_offboard_node")
 
-        # Params (declare + get in one pass)
+        # Params (declare + get in one pass). 상세 근거는 config/params.yaml 참조.
         params = [
             ("mavros_state_topic", "/mavros/state"),
-            ("arm_mask_angles_deg", [59.4, 123.0, 237.0, 301.0]),  # #2: Iris 로터 암 방향 (iris.sdf 실측)
-            ("arm_mask_half_width_deg", 12.0),                       # #2: 각 암 ±12°
             ("mavros_odom_topic", "/mavros/local_position/odom"),
             ("mavros_setpoint_topic", "/mavros/setpoint_velocity/cmd_vel_unstamped"),
             ("scan_topic", "/scan"),
@@ -92,53 +89,29 @@ class RLOffboardNode(Node):
             ("odom_timeout_sec", 0.3),
             ("scan_timeout_sec", 0.5),
             ("goal_radius", 1.5),
-            # nav_mode: "hybrid" (A* waypoint → PPO 항상) | "astar" (A* 단독) | "ppo" (PPO 단독)
             ("nav_mode", "hybrid"),
             ("grid_topic", "/local_grid"),
             ("occ_threshold", 50),
             ("allow_diag", True),
-            # replan_period: A* 전역경로 재계획 주기(s). 1.0s 근거:
-            #   (1) 연산 안전마진 — A* 최악 ~50ms, 전용 스레드(_cb_group_replan)에서 실행되어
-            #       주기(1000ms) ≫ 계산시간(~50ms) → 콜백 중첩/큐 적체 없음
-            #   (2) 경로 신선도 — v_max=0.8m/s → 1s당 최대 0.8m 이동. 장애물 크기(1.5~3m)
-            #       대비 1s 내 경로 무효화량이 작아 staleness가 bounded
             ("replan_period", 1.0),
-            ("path_lookahead_steps", 12),  # global planner: 현재 wp보다 N칸 앞을 target으로. 12 = 3.0m/0.25m(학습 env cell_size)
-            ("planner_max_yaw_rate", 1.0),  # global planner 전용 yaw rate 상한 (rad/s)
-            ("wp_advance_search_window", 10),  # _path_advance_wp 세그먼트 투영 탐색 창 (wp 수)
+            ("planner_max_yaw_rate", 1.0),
+            ("wp_advance_search_window", 10),
             ("rl_front_deg", 90.0),
-            # LiDAR 구간 거리: min=보수적, mean/median=스파이크 완화(비상 제동은 항상 min)
-            ("lidar_sector_agg", "mean"),
-            # 드론 기체/로터 암 자기 감지 필터: scan.range_min보다 크면 이 값으로 override
-            ("lidar_range_min_override", 0.0),
+            ("lidar_range_min_override", 0.35),
             ("emergency_brake_dist", 0.0),
-            ("emergency_brake_deg", 60.0),
-            ("heading_align_tol", 0.26),
-            ("goal_bias_dist", 2.5),
-            ("goal_bias_yaw_scale", 0.25),
-            # ppo 모드 PPO 추론 주기 (tick). 학습 dt=0.3s @ 20Hz tick = 6 (학습 매칭). 1=매 tick(현행, zigzag), 12=보수적.
-            ("ppo_frame_skip", 6),
+            ("emergency_brake_deg", 30.0),
             ("enable_altitude_hold", True),
             ("altitude_hold_margin", 0.1),
             ("altitude_hold_gain", 0.4),
             ("mode_retry_sec", 1.0),
             ("arm_retry_sec", 1.0),
-            ("goal_timeout_sec", 0.0),  # 0.0 = disabled
-            # --- TopoTraj 스타일 경로 개선 ---
-            ("use_topo_diversity",             False),
-            ("astar_min_inflation_cells",      2),        # 경로 최소 벽 여유(셀). 좁은 통로 막히면 자동 감소
-            ("topo_inflation_radii_cells",     [0, 1, 2]),
-            ("topo_homotopy_samples",          10),
-            ("shortcut_los_clearance_cells",   0),
-            # hybrid 모드 PPO obs용 경로 lookahead 거리 (m).
-            # norm_scale은 학습값(3.0)으로 고정 → policy 입력 분포 유지.
-            # R 코스처럼 좁은 통로 직전에서 3m 앞 지점이 통로 너머로 꺾이는 경우
-            # 더 가까운 지점을 target으로 삼아 벽 방향 velocity 성분 억제.
+            ("astar_min_inflation_cells",      1),
+            ("shortcut_los_clearance_cells",   1),
             ("hybrid_lookahead_dist_m",        1.0),
             ("smooth_bspline_enabled",         True),
             ("smooth_bspline_s",               0.0),
             ("smooth_bspline_output_points",   50),
-            ("smooth_bspline_skip_if_few_wps", 4),
+            ("smooth_bspline_skip_if_few_wps", 3),
         ]
         for name, default in params:
             self.declare_parameter(name, default)
@@ -149,20 +122,19 @@ class RLOffboardNode(Node):
             self.smooth_bspline_enabled = False
             self.get_logger().warn("scipy 없음: B-spline smoothing 비활성화.")
 
-        # Resolve model paths
-        # nav_mode별 default 파일명:
-        #   "hybrid" → policy_c2_ts.pt   / obs_norm_c2.json   (C2 ablation 모델, 10M step)
-        #   "ppo"    → policy_ppo_ts.pt  / obs_norm_ppo.json  (PPO 단독 모드용)
-        #   "astar"  → policy 불필요
+        # nav_mode별 default 모델 파일 (policy_path/obs_norm_path 미지정 시).
+        #   hybrid → policy_hybrid_ts.pt / obs_norm_hybrid.json
+        #   ppo    → policy_ppo_ts.pt    / obs_norm_ppo.json
+        #   astar  → policy 불필요
         policy_path = self.policy_path or ""
         obs_norm_path = self.obs_norm_path or ""
         if self.nav_mode != "astar" and (not policy_path or not obs_norm_path):
             if self.nav_mode == "hybrid":
-                default_policy  = "policy_c2dt05_ts.pt"
-                default_obs_norm = "obs_norm_c2dt05.json"
+                default_policy  = "policy_hybrid_ts.pt"
+                default_obs_norm = "obs_norm_hybrid.json"
             else:  # "ppo"
-                default_policy  = "policy_ppo_c2dt05_ts.pt"
-                default_obs_norm = "obs_norm_ppo_c2dt05.json"
+                default_policy  = "policy_ppo_ts.pt"
+                default_obs_norm = "obs_norm_ppo.json"
             try:
                 from ament_index_python.packages import get_package_share_directory
                 pkg = Path(get_package_share_directory("px4_rl_offboard_mavros"))
@@ -205,10 +177,9 @@ class RLOffboardNode(Node):
         self.odom: Optional[Odometry] = None
         self.scan: Optional[LaserScan] = None
         self.goal_xy: Optional[np.ndarray] = None   # ENU (odom과 동일)
-        # #5: sim clock 기반 초기화 (use_sim_time=True 환경에서 Gazebo 속도 저하 시 오탐 방지)
+        # 센서 timestamp는 sim clock 기반 (Gazebo 속도 저하 시 wall clock 오탐 방지)
         self.t_last_odom = self.get_clock().now()
         self.t_last_scan = self.get_clock().now()
-        self.t_last_goal = 0.0  # goal은 goal_timeout_sec=0 (무제한)이므로 float 유지
         self._pre_setpoint_count = 0
         self._pre_setpoint_needed = int(max(0, self.pre_setpoint_sec) * self.setpoint_rate_hz)
         self._t_last_mode_req = 0.0
@@ -217,8 +188,8 @@ class RLOffboardNode(Node):
         self._goal_reached = False
         self._scan_warn_last = 0.0   # scan 미수신 진단 로그 쓰로틀
         self._emergency_brake_active = False  # emergency brake 진입 시에만 로그
-        self._filtered_ranges: Optional[np.ndarray] = None  # #2: arm mask 적용된 캐시
-        self._brake_count = 0                               # #3: 연속 brake 틱 카운터
+        self._cached_ranges: Optional[np.ndarray] = None  # scan ranges 캐시 (재생성 회피)
+        self._brake_count = 0                               # 연속 brake 틱 카운터
         self._brake_rotate_left: Optional[bool] = None      # brake 진입 시 1회 결정, 해제 전 고정
         self._path_xy: List[Tuple[float, float]] = []
         self._path_wp_idx = 0
@@ -228,39 +199,26 @@ class RLOffboardNode(Node):
         self._grid_res = 0.1
         self._grid_w = self._grid_h = 0
         self._hold_z: Optional[float] = None  # Altitude hold reference
-        self._plan_robot_xy: Optional[Tuple[float, float]] = None
         self._plan_s_ij: Optional[Tuple[int, int]] = None
         self._plan_g_ij: Optional[Tuple[int, int]] = None
         self._t_last_debug_log = 0.0
-        self._yaw_sat_count = 0
-        # ppo 모드 frame skip: 학습 dt(0.3s)=20Hz×6 매칭. PPO 추론·action 갱신만 다운샘플.
-        # _tick_ppo_mode 한정 (astar/hybrid 무영향).
-        self._ppo_skip_counter = 0
-        self._cached_ppo_action: Optional[np.ndarray] = None
 
-        # QoS
+        # QoS — /scan은 Gazebo RPLidar의 qos_profile_sensor_data와 명시 매칭 (불일치 시 미수신)
         q_sensor = QoSProfile(reliability=ReliabilityPolicy.BEST_EFFORT, history=HistoryPolicy.KEEP_LAST, depth=10)
-        # /scan: Gazebo RPLidar(ray_sensor)는 qos_profile_sensor_data(BEST_EFFORT+VOLATILE) 사용.
-        # QoS 불일치 시 메시지 미수신 → obs=None → RL 미동작. 명시적 매칭으로 호환성 보장.
         q_scan = qos_profile_sensor_data
         q_goal = QoSProfile(reliability=ReliabilityPolicy.RELIABLE, history=HistoryPolicy.KEEP_LAST, depth=1,
                            durability=DurabilityPolicy.TRANSIENT_LOCAL)
         q_setpoint = QoSProfile(reliability=ReliabilityPolicy.RELIABLE, history=HistoryPolicy.KEEP_LAST, depth=10)
 
-        # #9: callback groups — tick/replan 스레드 분리로 A* 블로킹 방지
-        # tick:   MutuallyExclusive → 20Hz 제어 루프 단일 실행 보장
-        # replan: MutuallyExclusive → A* 재계획 단일 실행 보장 (tick과 별도 스레드)
-        # sensor: Reentrant          → 센서 콜백은 빠른 저장만, 동시 실행 허용
+        # Callback groups — tick/replan/sensor를 별도 스레드로 분리해 A* 블로킹 방지.
+        # tick·replan은 MutuallyExclusive(각 단일 실행), sensor는 Reentrant(저장만, 동시 허용).
         self._cb_group_tick   = MutuallyExclusiveCallbackGroup()
         self._cb_group_replan = MutuallyExclusiveCallbackGroup()
         self._cb_group_sensor = ReentrantCallbackGroup()
 
-        # #9: _path_xy / _path_wp_idx 를 tick ↔ replan 스레드 간 race condition으로부터 보호
-        # RLock: 같은 스레드 내 재진입 허용 (예: _path_advance_wp → _path_current_wp 체인)
+        # _path_lock: _path_xy/_path_wp_idx의 tick↔replan race 방지 (RLock=동일 스레드 재진입 허용).
         self._path_lock = threading.RLock()
-
-        # _grid_lock: _cb_grid(sensor thread) ↔ _plan_path(replan thread) 간 race 방지
-        # _grid_h/_grid_w/_grid_ox/_grid_oy/_grid_data 를 원자적으로 갱신/읽기
+        # _grid_lock: _cb_grid(sensor)↔_plan_path(replan) 간 grid 갱신/읽기 원자성 보장.
         self._grid_lock = threading.Lock()
 
         # Subs
@@ -304,34 +262,13 @@ class RLOffboardNode(Node):
 
     def _cb_odom(self, msg: Odometry):
         self.odom = msg
-        self.t_last_odom = self.get_clock().now()  # #5: sim clock
-
-    def _filter_arm_angles(self, ranges: np.ndarray) -> np.ndarray:
-        """#2: 로터 암 방향 빔을 max_range로 대체 (numpy 벡터화).
-        거리 기반 필터(lidar_range_min_override) 대신 각도 마스크로 자기감지 제거."""
-        if self.scan is None:
-            return ranges
-        out = ranges.copy()
-        ang_min = float(self.scan.angle_min)
-        inc = float(self.scan.angle_increment)
-        n = len(out)
-        beam_angles = ang_min + np.arange(n, dtype=np.float32) * inc
-        hw = math.radians(float(self.arm_mask_half_width_deg))
-        for arm_deg in self.arm_mask_angles_deg:
-            arm_rad = math.radians(float(arm_deg))
-            diff = np.abs(np.arctan2(
-                np.sin(beam_angles - arm_rad),
-                np.cos(beam_angles - arm_rad)
-            ))
-            out[diff < hw] = self.max_range
-        return out
+        self.t_last_odom = self.get_clock().now()
 
     def _cb_scan(self, msg: LaserScan):
         self.scan = msg
-        self.t_last_scan = self.get_clock().now()  # #5: sim clock
-        # #2: scan 수신 시 1회 arm 마스크 적용 → _dist_in_sector/_build_obs 공유
-        raw = np.array(msg.ranges, dtype=np.float32)
-        self._filtered_ranges = self._filter_arm_angles(raw)
+        self.t_last_scan = self.get_clock().now()
+        # scan ranges를 1회 캐시 → _dist_in_sector/_build_obs가 공유 (자기감지는 lidar_range_min_override로 처리)
+        self._cached_ranges = np.array(msg.ranges, dtype=np.float32)
 
     def _cb_goal(self, msg: PoseStamped):
         # /planner/goal을 odom 프레임으로 변환
@@ -346,7 +283,6 @@ class RLOffboardNode(Node):
                 [transformed_pose.pose.position.x, transformed_pose.pose.position.y],
                 dtype=np.float32
             )
-            self.t_last_goal = time.time()
             if self.nav_mode in ("hybrid", "astar"):
                 self._plan_path()
         except Exception as e:
@@ -387,9 +323,7 @@ class RLOffboardNode(Node):
         vx = 0.0 if not math.isfinite(vx) else max(-self.v_max, min(self.v_max, float(vx)))
         vy = 0.0 if not math.isfinite(vy) else max(-self.v_max, min(self.v_max, float(vy)))
         vz = 0.0 if not math.isfinite(vz) else max(-0.5, min(0.5, float(vz)))
-        # 모드별 yaw_rate clamp:
-        #   astar: planner_max_yaw_rate (기하학적 P-controller)
-        #   hybrid (v3 방식 C) / ppo: max_yaw_rate (PPO action[1] × max_yaw_rate, 학습 분포 보호)
+        # yaw_rate clamp: astar는 planner_max_yaw_rate, hybrid/ppo는 max_yaw_rate(학습 분포 보호)
         if self.nav_mode == "astar":
             yaw_limit = float(getattr(self, 'planner_max_yaw_rate', self.max_yaw_rate))
         else:
@@ -401,7 +335,7 @@ class RLOffboardNode(Node):
         self._pub.publish(msg)
 
     def _sensors_ok(self) -> bool:
-        # #5: sim clock 기반 — Gazebo 속도 저하 시 wall clock 오탐 방지
+        """odom/scan/goal 신선도 검사 (sim clock 기반)."""
         now = self.get_clock().now()
         odom_age = (now - self.t_last_odom).nanoseconds / 1e9
         scan_age = (now - self.t_last_scan).nanoseconds / 1e9
@@ -427,21 +361,20 @@ class RLOffboardNode(Node):
             return False
         if self.goal_xy is None:
             return False
-        if self.goal_timeout_sec > 0 and (time.time() - self.t_last_goal) > self.goal_timeout_sec:
-            return False
         return True
 
     def _build_obs(self) -> Optional[np.ndarray]:
+        """lidar(64) + goal_rel(body frame, 2) = obs_dim(66) 관측 벡터 생성."""
         if self.odom is None or self.scan is None or self.goal_xy is None:
             return None
-        # #2: arm mask 캐시 우선 사용 (scan 콜백에서 1회 계산)
-        if self._filtered_ranges is not None and len(self._filtered_ranges) == len(self.scan.ranges):
-            raw = self._filtered_ranges.copy()
+        # scan 캐시 우선 사용 (scan 콜백에서 1회 생성)
+        if self._cached_ranges is not None and len(self._cached_ranges) == len(self.scan.ranges):
+            raw = self._cached_ranges.copy()
         else:
             raw = np.array(self.scan.ranges, dtype=np.float32)
         rmin = float(getattr(self.scan, "range_min", 0.0))
-        override = float(getattr(self, "lidar_range_min_override", 0.0) or 0.0)
-        # RL 관측: 자기감지 필터(override) 적용. 비상 제동은 _dist_in_sector(..., use_override=False).
+        override = float(getattr(self, "lidar_range_min_override", 0.35) or 0.0)
+        # RL 관측엔 자기감지 override 적용 (비상 제동은 use_override=False로 미적용)
         if override > rmin:
             rmin = override
         raw = np.where(np.isfinite(raw) & (raw > rmin), raw, self.max_range)
@@ -452,14 +385,12 @@ class RLOffboardNode(Node):
         px, py = float(self.odom.pose.pose.position.x), float(self.odom.pose.pose.position.y)
         yaw = quat_to_yaw(self.odom.pose.pose.orientation)
 
-        # #7: scan-odom dead reckoning 보정
-        # scan(8Hz)과 odom(22Hz) 타임스탬프 차이만큼 위치/yaw 보정 → goal_rel 정확도 향상
-        # 최대 보정량: dt=45ms, v=1.5m/s → Δpos≈0.068m (0.2m 셀 기준 유의미)
+        # scan-odom dead reckoning 보정: 타임스탬프 차이만큼 위치/yaw 외삽 → goal_rel 정확도 향상
         if self.scan is not None and self.scan.header.stamp.sec != 0:
             scan_t = rclpy.time.Time.from_msg(self.scan.header.stamp).nanoseconds / 1e9
             odom_t = rclpy.time.Time.from_msg(self.odom.header.stamp).nanoseconds / 1e9
             dt = scan_t - odom_t
-            if abs(dt) > 0.01:  # 10ms 이상 차이 시 보정 (원안 50ms → 10ms, 22Hz odom 기준 실질 동작)
+            if abs(dt) > 0.01:
                 vx_b = self.odom.twist.twist.linear.x
                 vy_b = self.odom.twist.twist.linear.y
                 wz   = self.odom.twist.twist.angular.z
@@ -469,15 +400,10 @@ class RLOffboardNode(Node):
                 py  += vy_w * dt
                 yaw += wz   * dt
 
-        # nav_mode별 goal_rel 계산:
-        #   "hybrid": 경로상 hybrid_lookahead_dist_m 앞 지점 (distance 기반 interpolation)
-        #             step-count 기반(_path_lookahead_wp)은 3 wps 경로에서 즉시 goal로
-        #             점프해 routing point를 무시하는 문제가 있어 distance 기반으로 교체.
-        #             norm_scale은 학습값(3.0) 고정: lookahead 거리와 분리해
-        #             policy 입력 분포를 유지하면서 target 방향만 조정.
-        #   "ppo"   : 최종 goal / world_size (기존 policy와 일치)
-        LOOKAHEAD_NORM_SCALE = 3.0  # 학습 시 norm_scale — policy 입력 분포 유지를 위해 고정
-        lookahead_dist = float(getattr(self, "hybrid_lookahead_dist_m", 1.5))
+        # goal_rel target: hybrid는 경로상 lookahead 지점(거리 기반), ppo는 최종 goal.
+        # norm_scale은 hybrid에서 학습값 3.0 고정(입력 분포 유지), ppo는 world_size 정규화.
+        LOOKAHEAD_NORM_SCALE = 3.0
+        lookahead_dist = float(getattr(self, "hybrid_lookahead_dist_m", 1.0))
         if self.nav_mode == "hybrid" and self._path_xy:
             wp = self._path_lookahead_wp_at_dist(px, py, lookahead_dist)
             target_xy = np.array(wp, dtype=np.float32) if wp else self.goal_xy
@@ -511,7 +437,7 @@ class RLOffboardNode(Node):
         return float(v_cmd), float(yaw_rate)
 
     def _compute_cmd_vel(self, v_cmd: float, yaw: float) -> Tuple[float, float]:
-        # cmd_vel_unstamped 실험 결과: local/world 기준 속도로 해석됨
+        """heading 방향 속도를 local/world(ENU) vx·vy로 변환."""
         vx = v_cmd * math.cos(yaw)
         vy = v_cmd * math.sin(yaw)
         return vx, vy
@@ -528,41 +454,29 @@ class RLOffboardNode(Node):
             return 0.0
         return max(-0.5, min(0.5, self.altitude_hold_gain * err))
 
-    def _escape_if_spinning(self, yaw_rate: float, yaw: float) -> Optional[Tuple[float, float, float, float]]:
-        """요레이트 포화가 길게 지속되면 소량 후진으로 탈출."""
-        if abs(yaw_rate) >= self.max_yaw_rate * 0.95:
-            self._yaw_sat_count += 1
-        else:
-            self._yaw_sat_count = 0
-        if self._yaw_sat_count > 20:
-            self._yaw_sat_count = 0
-            return (-0.3 * math.cos(yaw), -0.3 * math.sin(yaw), self._vz_correction(), 0.0)
-        return None
-
     def _dist_in_sector(self, low_deg: float, high_deg: float, agg: str, use_override: bool = True) -> float:
         """LiDAR body frame 각도 구간(deg) 거리 집계. agg: min|median|mean.
         use_override=False면 lidar_range_min_override를 rmin에 반영하지 않음(비상 제동 등)."""
         if self.scan is None or not self.scan.ranges:
             return self.max_range
-        if self._filtered_ranges is not None and len(self._filtered_ranges) == len(self.scan.ranges):
-            ranges = self._filtered_ranges.copy()
+        if self._cached_ranges is not None and len(self._cached_ranges) == len(self.scan.ranges):
+            ranges = self._cached_ranges.copy()
         else:
             ranges = np.array(self.scan.ranges, dtype=np.float32)
         rmin = float(getattr(self.scan, "range_min", 0.0))
-        override = float(getattr(self, "lidar_range_min_override", 0.0) or 0.0)
+        override = float(getattr(self, "lidar_range_min_override", 0.35) or 0.0)
         if use_override and override > rmin:
             rmin = override
         ranges = np.where(np.isfinite(ranges) & (ranges > rmin), ranges, self.max_range)
         ang_min = float(self.scan.angle_min)
         inc = float(self.scan.angle_increment)
-        # [0, 2π) 공간에서 비교: atan2의 (-π, π] 범위가 high_deg>180° 섹터를
-        # (예: rear 150°~210°) 놓치는 wrap-around 버그 수정.
+        # [0, 2π) 공간에서 비교 (atan2 (-π,π] 범위가 180° 초과 섹터를 놓치는 wrap-around 방지)
         _TWO_PI = 2.0 * math.pi
-        low_pos  = math.radians(low_deg)  % _TWO_PI   # [0, 2π)
-        high_pos = math.radians(high_deg) % _TWO_PI   # [0, 2π)
+        low_pos  = math.radians(low_deg)  % _TWO_PI
+        high_pos = math.radians(high_deg) % _TWO_PI
         vals: List[float] = []
         for i in range(len(ranges)):
-            ang_pos = (ang_min + i * inc) % _TWO_PI   # [0, 2π)
+            ang_pos = (ang_min + i * inc) % _TWO_PI
             if low_pos <= high_pos:
                 in_sector = low_pos <= ang_pos <= high_pos
             else:
@@ -578,10 +492,6 @@ class RLOffboardNode(Node):
         if a == "mean":
             return float(np.mean(np.array(vals, dtype=np.float32)))
         return float(min(vals))
-
-    def _min_dist_in_sector(self, low_deg: float, high_deg: float) -> float:
-        """구간 최소 거리 (비상 제동 등 보수적 경로용). override 미적용."""
-        return self._dist_in_sector(low_deg, high_deg, "min", use_override=False)
 
     def _xy_to_ij(self, x: float, y: float) -> Optional[Tuple[int, int]]:
         if not self._have_grid:
@@ -603,11 +513,8 @@ class RLOffboardNode(Node):
         return self._grid_data[i, j] >= self.occ_threshold
 
     def _is_plan_blocked(self, i: int, j: int, grid: Optional[np.ndarray] = None) -> bool:
-        """A* 전용: occ≥threshold 막힘 + (옵션) 로봇 근처 unknown 막힘. 시작/목표 셀은 unknown만으로는 막지 않음.
-
-        grid: 명시적으로 전달된 그리드 배열. None이면 self._grid_data 사용.
-              병렬 A* 실행 시 각 스레드가 독립적인 grid를 전달해야 race condition을 피할 수 있음.
-        """
+        """A* 셀 막힘 판정 (occ≥threshold). start/goal 셀은 예외.
+        grid: None이면 self._grid_data. 병렬 호출 시 독립 grid 전달로 race 방지."""
         if i < 0 or i >= self._grid_h or j < 0 or j >= self._grid_w:
             return True
         g = grid if grid is not None else self._grid_data
@@ -640,12 +547,7 @@ class RLOffboardNode(Node):
         goal_ij: Tuple[int, int],
         grid: Optional[np.ndarray] = None,
     ) -> Optional[List[Tuple[int, int]]]:
-        """A* 경로 탐색.
-
-        grid: 탐색에 사용할 점유 격자. None이면 self._grid_data 사용.
-              병렬 호출 시 각 호출자가 독립적인 grid를 전달하면 self._grid_data를
-              수정하지 않으므로 thread-safe하게 동작함.
-        """
+        """A* 경로 탐색. grid=None이면 self._grid_data (독립 grid 전달 시 thread-safe)."""
         si, sj = start_ij
         gi, gj = goal_ij
         if (si, sj) == (gi, gj):
@@ -678,7 +580,7 @@ class RLOffboardNode(Node):
         path.reverse()
         return path
 
-    # ── TopoTraj 스타일 경로 개선 ──────────────────────────────────────────
+    # ── 경로 후처리 (LOS shortcut + inflation + B-spline smoothing) ──────────
 
     def _bresenham_cells(self, i0: int, j0: int, i1: int, j1: int):
         """Bresenham 선분 위의 모든 (i, j) 격자 셀을 yield."""
@@ -706,11 +608,7 @@ class RLOffboardNode(Node):
         x1: float, y1: float,
         grid: Optional[np.ndarray] = None,
     ) -> bool:
-        """두 월드 좌표 사이의 선분에 장애물이 없으면 True.
-
-        grid: 사전에 팽창된 그리드. None이면 raw self._grid_data 사용.
-              _shortcut_path에서 inflation clearance를 적용할 때 전달함.
-        """
+        """두 월드 좌표 사이 선분에 장애물이 없으면 True. grid=None이면 raw self._grid_data."""
         if not self._have_grid:
             return True
         c0 = self._xy_to_ij(x0, y0)
@@ -726,14 +624,10 @@ class RLOffboardNode(Node):
         return True
 
     def _shortcut_path(self, path_xy: List[Tuple[float, float]]) -> List[Tuple[float, float]]:
-        """LOS 기반 그리디 경로 단축: 시선이 통하는 가장 먼 점으로 바로 연결.
-
-        shortcut_los_clearance_cells > 0이면 A* inflation과 동일한 마진으로 LOS 체크.
-        clearance=0(기존)이면 raw grid만 체크해 벽 근접 단축이 허용됐음.
-        """
+        """LOS 기반 그리디 경로 단축. clearance>0이면 inflation 마진으로 LOS 체크(벽 근접 방지)."""
         if len(path_xy) <= 2:
             return list(path_xy)
-        clearance = int(getattr(self, 'shortcut_los_clearance_cells', 0))
+        clearance = int(getattr(self, 'shortcut_los_clearance_cells', 1))
         los_grid = self._inflate_grid_temp(clearance) if clearance > 0 else None
         result = [path_xy[0]]
         i = 0
@@ -751,11 +645,7 @@ class RLOffboardNode(Node):
         return result
 
     def _inflate_grid_temp(self, radius_cells: int) -> np.ndarray:
-        """장애물을 radius_cells 셀만큼 팽창한 임시 그리드 반환.
-
-        _grid_data 참조를 한 번만 캡처: _cb_grid(sensor thread)가 중간에
-        _grid_data를 교체해도 occ_mask와 result가 동일 배열 기준으로 계산됨.
-        """
+        """장애물을 radius_cells만큼 팽창한 임시 그리드 반환 (원본 _grid_data 불변)."""
         grid = self._grid_data  # 참조 한 번 캡처 (atomic in CPython)
         occ_mask = (grid >= self.occ_threshold)
         if radius_cells > 0:
@@ -772,11 +662,7 @@ class RLOffboardNode(Node):
         goal_ij: Tuple[int, int],
         radius_cells: int,
     ) -> Optional[List[Tuple[int, int]]]:
-        """팽창된 그리드로 A* 실행.
-
-        self._grid_data를 수정하지 않고 팽창 그리드를 _astar에 직접 전달하므로
-        여러 radius에 대해 thread-safe하게 병렬 호출 가능.
-        """
+        """팽창 그리드로 A* 실행 (start/goal 셀은 force-clear)."""
         inflated = self._inflate_grid_temp(radius_cells)
         # start/goal 셀이 팽창으로 막혔을 경우 강제 해제
         si, sj = start_ij
@@ -784,102 +670,6 @@ class RLOffboardNode(Node):
         inflated[si, sj] = min(inflated[si, sj], int(self.occ_threshold) - 1)
         inflated[gi, gj] = min(inflated[gi, gj], int(self.occ_threshold) - 1)
         return self._astar(start_ij, goal_ij, grid=inflated)
-
-    def _astar_diverse(
-        self,
-        start_ij: Tuple[int, int],
-        goal_ij: Tuple[int, int],
-    ) -> List[List[Tuple[int, int]]]:
-        """다양한 팽창 반경으로 여러 A* 경로를 병렬 탐색.
-
-        _astar_with_inflation이 self._grid_data를 수정하지 않으므로
-        ThreadPoolExecutor로 race condition 없이 동시 실행 가능.
-        (Python GIL로 인해 CPU 바운드 완전 병렬은 아니나, I/O 대기 없이
-        numpy 연산이 GIL을 부분 해제해 실질적인 중첩 실행 효과가 있음)
-        """
-        min_r = int(getattr(self, 'astar_min_inflation_cells', 2))
-        base_radii = list(self.topo_inflation_radii_cells) if hasattr(self, 'topo_inflation_radii_cells') else [0, 1, 2]
-
-        # min_r 기반으로 탐색. 좁은 통로에서 경로 없으면 base를 1씩 줄여 재시도
-        for base in range(min_r, -1, -1):
-            radii = [r + base for r in base_radii]
-
-            with concurrent.futures.ThreadPoolExecutor(max_workers=len(radii)) as executor:
-                future_to_radius = {
-                    executor.submit(self._astar_with_inflation, start_ij, goal_ij, r): r
-                    for r in radii
-                }
-                paths_unordered = []
-                for fut in concurrent.futures.as_completed(future_to_radius):
-                    p = fut.result()
-                    if p is not None:
-                        paths_unordered.append((future_to_radius[fut], p))
-
-            # radius 순서대로 정렬해 결과 재현성 유지
-            paths_unordered.sort(key=lambda x: x[0])
-
-            results: List[List[Tuple[int, int]]] = []
-            seen: set = set()
-            for _, p in paths_unordered:
-                key = (p[0], p[-1], len(p))
-                if key not in seen:
-                    seen.add(key)
-                    results.append(p)
-
-            if results:
-                if base < min_r:
-                    self.get_logger().warn(
-                        f"A* diverse: min_inflation reduced {min_r} → {base} (narrow passage)"
-                    )
-                return results
-
-        # 최후 fallback: inflation 없는 bare A*
-        fallback = self._astar(start_ij, goal_ij)
-        return [fallback] if fallback else []
-
-    def _sample_path_at_fractions(
-        self,
-        path_xy: List[Tuple[float, float]],
-        n: int,
-    ) -> List[Tuple[float, float]]:
-        """arc-length 기반 등간격 n개 샘플."""
-        if len(path_xy) < 2:
-            return list(path_xy)
-        pts = np.array(path_xy, dtype=np.float64)
-        dists = np.concatenate([[0.0], np.cumsum(np.hypot(np.diff(pts[:, 0]), np.diff(pts[:, 1])))])
-        total = dists[-1]
-        if total < 1e-9:
-            return [path_xy[0]] * n
-        fracs = np.linspace(0.0, total, n)
-        xs = np.interp(fracs, dists, pts[:, 0])
-        ys = np.interp(fracs, dists, pts[:, 1])
-        return list(zip(xs.tolist(), ys.tolist()))
-
-    def _paths_same_homotopy(
-        self,
-        path_a: List[Tuple[float, float]],
-        path_b: List[Tuple[float, float]],
-    ) -> bool:
-        """두 경로가 같은 homotopy class이면 True (대응 점들이 모두 LOS)."""
-        n = int(getattr(self, 'topo_homotopy_samples', 10))
-        samps_a = self._sample_path_at_fractions(path_a, n)
-        samps_b = self._sample_path_at_fractions(path_b, n)
-        for (ax, ay), (bx, by) in zip(samps_a, samps_b):
-            if not self._los_clear(ax, ay, bx, by):
-                return False
-        return True
-
-    def _filter_homotopy_classes(
-        self,
-        paths_xy: List[List[Tuple[float, float]]],
-    ) -> List[List[Tuple[float, float]]]:
-        """위상적으로 중복된 경로 제거 — 각 homotopy class에서 대표 1개만 유지."""
-        kept: List[List[Tuple[float, float]]] = []
-        for p in paths_xy:
-            duplicate = any(self._paths_same_homotopy(p, k) for k in kept)
-            if not duplicate:
-                kept.append(p)
-        return kept if kept else [paths_xy[0]]
 
     def _smooth_path_bspline(
         self,
@@ -898,7 +688,7 @@ class RLOffboardNode(Node):
             out_x, out_y = _splev(u_fine, tck)
             result = list(zip(out_x.tolist(), out_y.tolist()))
             if self._have_grid:
-                min_r = int(getattr(self, 'astar_min_inflation_cells', 2))
+                min_r = int(getattr(self, 'astar_min_inflation_cells', 1))
                 if min_r > 0:
                     inflated_grid = self._inflate_grid_temp(min_r)
                     for (rx, ry) in result:
@@ -965,9 +755,7 @@ class RLOffboardNode(Node):
                         f"y:[{self._grid_oy:.1f},{self._grid_oy+self._grid_h*self._grid_res:.1f}]]"
                     )
             else:
-                # start/goal 셀이 inflation으로 occupied여도 A* 강제 시도.
-                # _astar_with_inflation이 start/goal 셀을 force-clear하므로
-                # 직선 fallback 대신 우회 경로를 찾을 수 있음.
+                # start/goal이 inflation으로 occupied여도 force-clear 후 A* 시도 (우회 경로 확보)
                 si, sj = s_ij
                 gi, gj = g_ij
                 if self._is_occ(*s_ij):
@@ -984,60 +772,35 @@ class RLOffboardNode(Node):
                             f"A* goal cell occupied (ij={g_ij}, val={val}): "
                             f"force-clearing goal for A* (inflation artifact)"
                         )
-                self._plan_robot_xy = (px, py)
                 self._plan_s_ij = s_ij
                 self._plan_g_ij = g_ij
                 try:
-                    # ── TopoTraj 파이프라인 ──
-                    # use_topo_diversity=True: 병렬 다중 경로, False: 단일 경로
-                    # 두 경우 모두 _astar_with_inflation(radius=0)으로 start/goal force-clear
-                    if self.use_topo_diversity:
-                        candidates_ij = self._astar_diverse(s_ij, g_ij)
-                    else:
-                        # min_r부터 0까지 점진적 fallback: 좁은 통로에서도 경로 보장
-                        min_r = int(getattr(self, 'astar_min_inflation_cells', 2))
-                        raw = None
-                        for r in range(min_r, -1, -1):
-                            raw = self._astar_with_inflation(s_ij, g_ij, radius_cells=r)
-                            if raw:
-                                if r < min_r:
-                                    self.get_logger().warn(
-                                        f"A* single: min_inflation reduced {min_r} → {r} (narrow passage)"
-                                    )
-                                break
-                        candidates_ij = [raw] if raw else []
+                    # min_r → 0 점진적 fallback으로 좁은 통로에서도 경로 보장
+                    min_r = int(getattr(self, 'astar_min_inflation_cells', 1))
+                    path_ij = None
+                    for r in range(min_r, -1, -1):
+                        path_ij = self._astar_with_inflation(s_ij, g_ij, radius_cells=r)
+                        if path_ij:
+                            if r < min_r:
+                                self.get_logger().warn(
+                                    f"A* min_inflation reduced {min_r} → {r} (narrow passage)"
+                                )
+                            break
 
-                    if candidates_ij:
-                        # XY 변환
-                        candidates_xy: List[List[Tuple[float, float]]] = [
-                            [self._ij_to_xy(ci, cj) for ci, cj in p]
-                            for p in candidates_ij
-                        ]
-                        # homotopy class 필터
-                        if self.use_topo_diversity and len(candidates_xy) > 1:
-                            candidates_xy = self._filter_homotopy_classes(candidates_xy)
-                        # 최단 경로 선택
-                        def _plen(p: List[Tuple[float, float]]) -> float:
-                            return sum(
-                                math.hypot(p[k + 1][0] - p[k][0], p[k + 1][1] - p[k][1])
-                                for k in range(len(p) - 1)
-                            )
-                        path_xy = min(candidates_xy, key=_plen)
-                        # LOS shortcutting
-                        path_xy = self._shortcut_path(path_xy)
-                        # B-spline smoothing
-                        skip_n = int(getattr(self, 'smooth_bspline_skip_if_few_wps', 4))
+                    if path_ij:
+                        path_xy = [self._ij_to_xy(ci, cj) for ci, cj in path_ij]
+                        path_xy = self._shortcut_path(path_xy)           # LOS shortcutting
+                        skip_n = int(getattr(self, 'smooth_bspline_skip_if_few_wps', 3))
                         if self.smooth_bspline_enabled and len(path_xy) >= skip_n:
-                            path_xy = self._smooth_path_bspline(path_xy)
-                        # goal 좌표 고정 및 저장 (#9: _path_lock으로 tick 스레드와 race 방지)
+                            path_xy = self._smooth_path_bspline(path_xy)  # B-spline smoothing
+                        # goal 좌표 고정 후 저장 (_path_lock으로 tick 스레드와 race 방지)
                         path_xy[-1] = (gx, gy)
                         with self._path_lock:
                             self._path_xy = path_xy
                             self._path_wp_idx = 0
                         self.get_logger().info(
                             f"A* succeeded: {len(path_xy)} wps "
-                            f"(diversity={self.use_topo_diversity}, "
-                            f"smoothed={self.smooth_bspline_enabled}), "
+                            f"(smoothed={self.smooth_bspline_enabled}), "
                             f"start_ij={s_ij}, goal_ij={g_ij}"
                         )
                         self._publish_path_msg()
@@ -1047,7 +810,6 @@ class RLOffboardNode(Node):
                             f"Path fallback (straight): A* failed to find path (start={s_ij}, goal={g_ij})"
                         )
                 finally:
-                    self._plan_robot_xy = None
                     self._plan_s_ij = None
                     self._plan_g_ij = None
         else:
@@ -1055,7 +817,7 @@ class RLOffboardNode(Node):
                 self.get_logger().warn(
                     f"Path fallback (straight): no grid (_have_grid=False)"
                 )
-        # path fallback: 직선 경로(goal)로 대체 (#9: _path_lock으로 tick 스레드와 race 방지)
+        # fallback: 직선 경로(goal)로 대체 (_path_lock으로 tick 스레드와 race 방지)
         self.get_logger().warn("Path fallback (straight): using direct goal line.")
         with self._path_lock:
             self._path_xy = [(gx, gy)]
@@ -1063,12 +825,7 @@ class RLOffboardNode(Node):
         self._publish_path_msg()
 
     def _tick_replan(self) -> None:
-        """주기적 경로 재계획 (replan_period 간격 타이머).
-
-        replan_period=1.0s가 안전 최솟값 (A* 최악 ~50ms → 콜백 중첩 방지).
-        _plan_path를 tick 스레드에서 직접 호출하면 _cb_group_replan 우회 →
-        _path_xy 동시 쓰기(경로 thrashing) 위험으로 금지.
-        """
+        """주기적 경로 재계획 (replan 전용 스레드). tick 스레드 직접 호출은 race 위험으로 금지."""
         if not (self.nav_mode in ("hybrid", "astar")
                 and self.odom is not None
                 and self.goal_xy is not None
@@ -1082,24 +839,11 @@ class RLOffboardNode(Node):
                 return None
             return self._path_xy[self._path_wp_idx]
 
-    def _path_lookahead_wp(self) -> Optional[Tuple[float, float]]:
-        """현재 waypoint보다 N칸 앞을 target으로 사용 (emergency brake 방향 결정 전용)."""
-        with self._path_lock:
-            if not self._path_xy:
-                return None
-            steps = getattr(self, "path_lookahead_steps", 12)
-            idx = min(self._path_wp_idx + steps, len(self._path_xy) - 1)
-            return self._path_xy[idx]
-
     def _path_lookahead_wp_at_dist(
         self, px: float, py: float, lookahead_dist: float
     ) -> Optional[Tuple[float, float]]:
-        """드론 현재 위치로부터 경로상 lookahead_dist(m) 앞 지점을 interpolation하여 반환.
-
-        step-count 기반 lookahead는 A* 경로가 3 wps로 단축됐을 때
-        즉시 마지막 wp(goal)로 점프해 routing point를 무시하는 문제가 있음.
-        distance 기반은 경로 wps 수와 무관하게 항상 일정 거리 앞 지점을 목표로 함.
-        """
+        """경로상 lookahead_dist(m) 앞 지점을 거리 기반 interpolation하여 반환.
+        거리 기반은 경로 wp 수와 무관하게 일정 거리 앞을 가리킴 (step-count의 goal 점프 문제 회피)."""
         with self._path_lock:
             if not self._path_xy:
                 return None
@@ -1107,11 +851,8 @@ class RLOffboardNode(Node):
             n = len(path)
             start_idx = max(0, min(self._path_wp_idx, n - 1))
 
-        # Backward 시작 세그먼트 차단: drone이 path[start_idx]를 path 진행방향으로
-        # 이미 통과했으면 start_idx를 advance. (path[start_idx]−drone)와
-        # (path[start_idx+1]−path[start_idx])의 dot product가 음수(사이각 > 90°)면 통과한 것.
-        # military_airfield 2-wp 단순 경로에서 lookahead가 후방 점을 반환해
-        # 180° 회전을 유발하는 버그 차단.
+        # 이미 통과한 시작 세그먼트 건너뛰기: dot product<0(사이각>90°)이면 start_idx advance.
+        # (lookahead가 후방 점을 반환해 180° 회전을 유발하는 버그 차단)
         while start_idx + 1 < n:
             ax, ay = path[start_idx]
             bx, by = path[start_idx + 1]
@@ -1135,17 +876,11 @@ class RLOffboardNode(Node):
             accum += seg
             prev_x, prev_y = wp_x, wp_y
 
-        # 경로 잔여가 lookahead_dist보다 짧을 때: 항상 현재 start_idx보다 한 발 앞을 반환.
-        # path[-2] 방식은 wp_idx >= n-2 시 현재 위치를 가리켜 드론 정지 데드락 유발.
+        # 잔여 경로가 lookahead_dist보다 짧으면 start_idx보다 한 발 앞을 반환 (정지 데드락 방지)
         return path[min(n - 1, start_idx + 1)]
 
     def _path_advance_wp(self, px: float, py: float):
-        """가장 가까운 경로 세그먼트를 수직 투영하여 wp_idx 결정.
-
-        greedy(d_next<=d_cur): 측방 드리프트 시 코너를 건너뜀.
-        threshold(0.5m): lookahead 추종 중 비스듬히 지나치면 idx 동결 (기존 포기 이유).
-        세그먼트 투영: 양쪽 문제 없음. 측방 이탈과 무관하게 경로 위 투영점(t)으로 판단.
-        """
+        """가장 가까운 경로 세그먼트에 수직 투영해 wp_idx 갱신 (측방 이탈에 강건)."""
         with self._path_lock:
             if not self._path_xy or self._path_wp_idx >= len(self._path_xy):
                 return
@@ -1182,7 +917,6 @@ class RLOffboardNode(Node):
         wp = self._path_lookahead_wp_at_dist(px, py, self.hybrid_lookahead_dist_m)
         curr_wp = self._path_current_wp()
 
-        # [DEBUG] 우선진단 1: Lookahead WP 추적 (1초마다 출력)
         if now - self._t_last_debug_log >= 1.0:
             self.get_logger().debug(
                 f"[GLOBAL_WP] curr_idx={self._path_wp_idx}, "
@@ -1200,29 +934,21 @@ class RLOffboardNode(Node):
             return 0.0, 0.0, self._vz_correction(), 0.0
         target_yaw = math.atan2(gy, gx)
         yaw_err = math.atan2(math.sin(target_yaw - yaw), math.cos(target_yaw - yaw))
-        tol = self.heading_align_tol
-        if abs(yaw_err) > tol:
-            # #8: 완전 정지(0,0) 제거 → 오차 비례 감속
-            # 90° 이상에서만 실질 정지, 그 이하에서는 감속하며 전진
-            planner_yaw_limit = float(getattr(self, 'planner_max_yaw_rate', self.max_yaw_rate))
-            yaw_rate = max(-planner_yaw_limit, min(planner_yaw_limit, 2.0 * yaw_err))
-            align_scale = max(0.0, 1.0 - abs(yaw_err) / (math.pi / 2))
-            v_cmd = min(self.v_max, 0.8 * gnorm) * align_scale
-            vx = v_cmd * math.cos(target_yaw)
-            vy = v_cmd * math.sin(target_yaw)
-            return vx, vy, self._vz_correction(), yaw_rate
-        v_cmd = min(self.v_max, 0.8 * gnorm)
-        # target_yaw 방향으로 velocity (코너에서 자연스러운 꺾임)
+        # yaw 오차 비례 회전 + 오차 클수록 감속 (정렬 데드존 없음, 코너에서 자연스러운 꺾임)
+        planner_yaw_limit = float(getattr(self, 'planner_max_yaw_rate', self.max_yaw_rate))
+        yaw_rate = max(-planner_yaw_limit, min(planner_yaw_limit, 2.0 * yaw_err))
+        align_scale = max(0.0, 1.0 - abs(yaw_err) / (math.pi / 2))
+        v_cmd = min(self.v_max, 0.8 * gnorm) * align_scale
         vx = v_cmd * math.cos(target_yaw)
         vy = v_cmd * math.sin(target_yaw)
-        return vx, vy, self._vz_correction(), 0.0
+        return vx, vy, self._vz_correction(), yaw_rate
 
     def _tick(self):
+        """20Hz 제어 루프: 연결/OFFBOARD/ARM 확보 → 비상제동 → nav_mode별 제어 → setpoint 발행."""
         now = time.time()
         if self.mav_state is None or not self.mav_state.connected:
             return
-        # homing 대기 중: course_goal_publisher가 position setpoint를 전송 중이므로
-        # velocity setpoint를 동시에 전송하면 PX4가 두 명령을 번갈아 실행 → 드론 제자리 → homing timeout
+        # homing 중에는 velocity 미발행 (course_goal_publisher의 position setpoint와 충돌 방지)
         if self.wait_for_homing and not self._homing_done:
             return
         if self._pre_setpoint_count < self._pre_setpoint_needed:
@@ -1268,8 +994,7 @@ class RLOffboardNode(Node):
 
         half = getattr(self, "rl_front_deg", 90.0) / 2.0
 
-        # Emergency brake (공통): arm mask 적용 후 실제 장애물만 감지 (#2), 후퇴 추가 (#3)
-        # use_override=True: lidar_range_min_override=0.35m 적용 → body 자기감지(0.24~0.31m) 필터
+        # Emergency brake: 정면 최소거리 ≤ 임계값이면 회전+후퇴. use_override로 body 자기감지 필터.
         d_front_min = self._dist_in_sector(-half, half, "min", use_override=True)
         if d_front_min <= self.emergency_brake_dist:
             d_left  = self._dist_in_sector(self.emergency_brake_deg, 90.0, "min", use_override=False)
@@ -1280,7 +1005,7 @@ class RLOffboardNode(Node):
             if self._brake_rotate_left is None:
                 rotate_reason = "lidar"
                 rotate_left = (d_left >= d_right)
-                wp_la = self._path_lookahead_wp()
+                wp_la = self._path_lookahead_wp_at_dist(px, py, self.hybrid_lookahead_dist_m)
                 if wp_la is not None:
                     wp_angle_world = math.atan2(wp_la[1] - py, wp_la[0] - px)
                     # body frame 기준 상대각: +이면 왼쪽, -이면 오른쪽
@@ -1313,20 +1038,11 @@ class RLOffboardNode(Node):
         self._brake_count = 0
         self._brake_rotate_left = None
 
-        # ppo 모드의 goal_bias_yaw_scale 게이트용 d_min_sectors 계산
-        agg = str(getattr(self, "lidar_sector_agg", "min")).lower()
-        if agg not in ("min", "median", "mean"):
-            agg = "min"
-        d_front       = self._dist_in_sector(-half, half, agg)
-        d_front_left  = self._dist_in_sector(half, 90.0, agg)
-        d_front_right = self._dist_in_sector(-90.0, -half, agg)
-        d_min_sectors = min(d_front, d_front_left, d_front_right)
-
         # nav_mode별 제어 로직
         if self.nav_mode == "astar":
             vx, vy, vz, yaw_rate = self._tick_astar_mode(px, py, yaw, now)
         elif self.nav_mode == "ppo":
-            vx, vy, vz, yaw_rate = self._tick_ppo_mode(yaw, d_min_sectors)
+            vx, vy, vz, yaw_rate = self._tick_ppo_mode(yaw)
         else:  # "hybrid"
             vx, vy, vz, yaw_rate = self._tick_hybrid_mode(px, py, yaw)
 
@@ -1338,46 +1054,19 @@ class RLOffboardNode(Node):
             self._plan_path()
         return self._tick_global(px, py, yaw, now)
 
-    def _tick_ppo_mode(self, yaw: float, d_min_sectors: float) -> Tuple[float, float, float, float]:
-        """PPO 단독 모드: 최종 goal 방향으로 PPO 추론. A* 없음.
-
-        Frame skip (ppo 모드 한정, astar/hybrid 무영향):
-        - PPO 추론·action 갱신은 ppo_frame_skip tick마다 (학습 dt=0.3s 매칭, default 6 @ 20Hz).
-        - 그 외 tick은 cache된 action 그대로 재사용 → PX4 setpoint는 20Hz 유지(lockstep).
-        - 안전 게이트(_escape_if_spinning, goal_bias)는 cache 우회하여 매 tick 평가.
-        """
-        # frame skip: 학습 dt(0.3s) 매칭 (배포 0.05s × 6 = 0.3s)
-        self._ppo_skip_counter += 1
-        if self._cached_ppo_action is None or self._ppo_skip_counter >= self.ppo_frame_skip:
-            obs = self._build_obs()
-            if obs is None:
-                return 0.0, 0.0, self._vz_correction(), 0.0
-            self._cached_ppo_action = self._infer(obs)
-            self._ppo_skip_counter = 0
-
-        v_cmd, yaw_rate = self._action_to_vel(self._cached_ppo_action)
-
-        # 안전 게이트는 매 tick 평가 (cache 우회)
-        esc = self._escape_if_spinning(yaw_rate, yaw)
-        if esc is not None:
-            self._cached_ppo_action = None  # cache invalidate → 다음 tick 즉시 재추론
-            return esc
-
-        if d_min_sectors > self.goal_bias_dist:
-            yaw_rate *= self.goal_bias_yaw_scale
-
+    def _tick_ppo_mode(self, yaw: float) -> Tuple[float, float, float, float]:
+        """PPO 단독 모드: 최종 goal 방향 매 tick 추론. PPO 출력을 가공 없이 그대로 발행."""
+        obs = self._build_obs()
+        if obs is None:
+            return 0.0, 0.0, self._vz_correction(), 0.0
+        action = self._infer(obs)
+        v_cmd, yaw_rate = self._action_to_vel(action)
         vx, vy = self._compute_cmd_vel(v_cmd, yaw)
         return vx, vy, self._vz_correction(), yaw_rate
 
     def _tick_hybrid_mode(self, px: float, py: float, yaw: float) -> Tuple[float, float, float, float]:
-        """Hybrid-v3 (방식 C): A*(전역 경로) lookahead obs + PPO(v_cmd·yaw_rate) 제어.
-
-        학습 env(C2, dt=0.05)와 정합:
-        - obs goal_rel = A* 경로상 hybrid_lookahead_dist_m(1.0m) 앞 wp / norm 3.0 (_build_obs 그대로)
-        - 제어 = PPO 출력 full: yaw_rate = action[1]*max_yaw_rate, 이동 = 현재 heading 방향(학습 unicycle)
-        - 매 tick(20Hz) 추론 = 학습 dt=0.05 와 결정 주기 정합 (frame_skip 없음)
-        기하학적 yaw·align_scale 미사용(학습에 없음 → 폐기).
-        """
+        """Hybrid 모드: A* 경로 lookahead를 obs로 PPO 매 tick 추론 → v_cmd·yaw_rate.
+        이동은 현재 heading 방향, heading은 PPO yaw_rate로 제어 (학습 unicycle 정합)."""
         with self._path_lock:
             have_path = bool(self._path_xy)
         if have_path:
@@ -1389,9 +1078,7 @@ class RLOffboardNode(Node):
         if obs is None:
             return 0.0, 0.0, self._vz_correction(), 0.0
         action = self._infer(obs)
-        v_cmd, yaw_rate = self._action_to_vel(action)   # 방식 C: PPO yaw_rate 사용
-
-        # 이동 = 현재 heading 방향 (학습 unicycle 정합), heading 은 PPO yaw_rate 로 제어
+        v_cmd, yaw_rate = self._action_to_vel(action)
         vx = v_cmd * math.cos(yaw)
         vy = v_cmd * math.sin(yaw)
         return vx, vy, self._vz_correction(), yaw_rate
@@ -1400,8 +1087,7 @@ class RLOffboardNode(Node):
 def main(args=None):
     rclpy.init(args=args)
     node = RLOffboardNode()
-    # #9: MultiThreadedExecutor — tick(20Hz) / replan(A*) / sensor 콜백을 별도 스레드로 분리
-    # num_threads=3: tick 전용, replan 전용, sensor 공용 (스레드 수 = callback group 수)
+    # tick / replan / sensor 콜백 그룹을 각 스레드로 분리 (스레드 수 = callback group 수)
     executor = MultiThreadedExecutor(num_threads=3)
     executor.add_node(node)
     try:
