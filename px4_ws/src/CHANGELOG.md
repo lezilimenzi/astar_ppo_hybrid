@@ -3,6 +3,44 @@
 
 ---
 
+## 2026-07-30: `[적용]` `grid_fuser` 자기감지 필터 + log-odds 파라미터 재도출 (오프라인 스윕 기반)
+
+> **배경:** Course L 주행에서 `A* min_inflation reduced 1 → 0` 와 `Path fallback (straight)` 이 상시 발생. 1.7m 통로가 유령 셀로 닫히는 것이 원인이었다. 파라미터를 비행으로 판정하려 했으나 **동일 설정이 성공/실패를 오가** n=1 로는 판정이 불가능했다 → 오프라인 스윕 도구를 만들어 정량화했다.
+>
+> **1. `grid_fuser` 자기감지 필터 (`lidar_range_min_override`)**
+> - `process_scan` 이 `scan.range_min`(SDF 0.12m)을 그대로 써서, 기체 암/프롭 반사(~0.25m)를 **드론 자기 위치에 occupied 로 기록**하고 있었다. `rl_offboard_node` 에는 같은 목적의 `lidar_range_min_override: 0.35` 가 있었으나 `grid_fuser` 에는 없어, **관측(RL)과 지도(A\*)가 서로 다른 LiDAR 하한**을 보고 있었다.
+> - 파라미터 추가 + `r_min_eff = max(scan.range_min, override)` 적용. 미만 반사는 **빔 통째로 제외**한다(`max_range` 치환은 자기반사 방향으로 free ray 를 길게 파내어 실제 벽까지 지우므로 금지).
+> - 효과: `A* start cell occupied` **38% → 11%**, `Path fallback` **6회 → 0회**.
+>
+> **2. 오프라인 스윕 도구 (`px4_nav_perception/scripts/sweep_grid_params.py`)**
+> - rosbag2 의 `/scan` + `/tf` 를 한 번 읽어 광선 투사 결과(셀 인덱스)를 캐시하고, log-odds 파라미터 조합마다 누적만 다시 돌린다. 광선 기하는 파라미터와 무관하므로 **비행 반복 없이** 144조합을 수 분에 채점한다.
+> - 채점은 A\* 관점 지표다. `obstacle_course.world` 의 벽 16개를 ground truth 로 삼아 ① **관문 막힘**(반드시 지나야 하는 1.7m 통로 + 코스 진입구가 닫히는 프레임 비율), ② **벽 관통 구멍**(A\* 가 벽을 뚫고 지나갈 수 있는 행 수)을 잰다.
+> - `--validate` 로 재현 검증: 기록된 `/local_grid` 와 **IoU 0.975** 일치 확인 후 스윕 결과를 채택했다.
+>
+> **3. 파라미터 변경** (완주/실패 bag 2건 교차 검증)
+>
+> | 항목 | 이전 | 이후 | 근거 |
+> |---|---|---|---|
+> | `publish_dilation_cells` | 1 | **0** | `astar_min_inflation_cells` 와 중첩되어 통로 유효폭이 3셀로 축소. 실패 주행 막힘 46~53%. 팽창은 A\* 쪽 한 곳에서만 건다 |
+> | `prob_hit` | 0.85 | **0.80** | 벽 침식 대응. 0.85 는 구멍이 5% 밖에 안 줄면서 막힘만 올라 0.80 이 무릎 |
+> | `prob_miss` | 0.35 | **0.40** | ρ = l_hit/\|l_miss\| 조정 |
+> | `clamp_max` | 3.0 | **6.0** | 벽 셀은 5회 hit 로 포화하므로 포화 후 침식 내성은 `prob_hit` 이 아니라 이 값이 결정. 4→6 은 막힘 변화 없이 구멍만 −41% |
+>
+> **결과:** `min_inflation reduced` / `Path fallback` / `start cell occupied` 세 경고 모두 **0회**.
+>
+> **4. 기각된 시도 (코드에는 남기되 기본값 off)**
+> - `occupied_backfill_cells` — 히트 셀 뒤(빔 방향)로 N셀 추가 점유. 2D LiDAR 가 벽 앞면만 보므로 몸통·뒷면이 미관측(=free 발행)으로 남는 문제를 겨냥했으나, **비스듬한 입사에서 빔이 벽과 거의 평행**이라 backfill 이 벽을 따라 번져 통로로 흘러넘친다. 막힘 2.90% → **51.76%** 로 악화.
+> - `protect_hit_cells_from_miss` — 같은 스캔에서 어떤 빔이든 끝난 셀은 `l_miss` 에서 제외. Pareto 전선이 base 와 교차해 **순이득 없음**.
+> - `resolution: 0.20 → 0.10` — 관문 막힘 지표가 행 수에 비례해 미세 격자에 불리하게 편향되어 **개선을 입증하지 못했다**(판정 보류).
+>
+> **5. 부수 수정**
+> - `rl_offboard_node`: `A* succeeded` 로그의 `smoothed=` 가 설정 플래그를 출력해 **항상 True** 였다 → 실제 적용 여부로 교체(B-spline 은 통로에서 약 70% 기각된다는 사실이 드러남). `smooth_bspline_skip_if_few_wps` 가 함수 내부 하드코딩(`< 4`)과 어긋나 있던 오프바이원도 정리(기본값 3 → 4, 동작 동일).
+> - `start_px4.sh`: `ros2 topic list | grep -q` 가 SIGPIPE 로 `BrokenPipeError` 트레이스백을 뿜던 것 제거(출력을 변수로 수신). static TF 인자를 new-style 로 교체해 deprecated 경고 제거.
+>
+> **미해결:** 지도 계층이 깨끗해진 뒤에도 hybrid 가 Course L 진입 후 이탈하는 사례가 남는다. 남은 후보는 2026-06-06 `_tick_hybrid_mode` 의 PPO yaw 전환과 학습 env(`rl/env_2d_nav.py`)의 `COURSE_L_S_ENU_BOXES` 에서 `s_outer_right` 누락이다.
+
+---
+
 ## 2026-06-16: `[적용]` `rl_offboard_node` — ppo 모드 frame skip 제거 (매 tick 추론 복귀)
 
 > ppo 모드 추론 주기를 PX4 발행 주기(20Hz)와 분리하던 frame skip(action repeat)을 완전 제거. `ppo_frame_skip` 파라미터(params.yaml + declare_parameter), 상태 변수 `_ppo_skip_counter`·`_cached_ppo_action`, `_tick_ppo_mode`의 skip/cache 분기를 모두 삭제. 이제 ppo 모드는 hybrid와 동일하게 **매 tick** `_build_obs → _infer → _action_to_vel → publish`로 추론한다. (2026-05-11 frame skip 도입 항목을 되돌림.) `grep` 결과 코드/params에서 `ppo_frame_skip`·`_ppo_skip_counter`·`_cached_ppo_action` 0건. `python3 -m py_compile` 통과.

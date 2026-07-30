@@ -2,7 +2,7 @@
 import array
 import math
 import numpy as np
-from typing import Tuple, Optional
+from typing import List, Tuple, Optional
 
 try:
     from scipy.ndimage import binary_dilation as _scipy_dilation
@@ -41,6 +41,18 @@ class GridFuser(Node):
         p('max_range', 10.0)                  # hard cap
         # 거리 r이 effective cap에 이 값(m) 이내로 가까우면 "막힘이 없다"로 보고 끝 셀을 occ로 찍지 않음
         p('max_range_no_hit_epsilon', 0.08)
+        # 자기감지 방어: scan.range_min 보다 이 값이 크면 이 값을 하한으로 사용. 0=비활성.
+        # rl_offboard_node 의 lidar_range_min_override 와 같은 목적·같은 값으로 맞춘다.
+        p('lidar_range_min_override', 0.0)
+        # 폐색 보정: 히트 셀에서 빔 진행 방향으로 N 셀 더 occupied 로 표시한다.
+        # 2D LiDAR 는 벽 앞면만 보므로 몸통·뒷면이 영원히 미관측(=free 발행)으로 남는다.
+        # publish_dilation 과 달리 그림자 쪽으로만 커져 드론이 있는 통로를 잠식하지 않는다.
+        # 벽 두께 0.3m / 해상도 0.2m 면 1 이 적정(backfill 이 벽 몸통 안에 머묾). 0=비활성.
+        p('occupied_backfill_cells', 0)
+        # 같은 스캔에서 어떤 빔이든 끝난 셀에는 l_miss 를 적용하지 않는다.
+        # (기존 is_endpoint 는 자기 빔의 끝점만 보호 → 비스듬한 입사에서 벽면 셀이
+        #  이웃 빔의 자유 표시에 깎이는 침식의 주원인)
+        p('protect_hit_cells_from_miss', False)
         p('rolling_window', True)
         p('use_log_odds', False)
         p('prob_hit', 0.65)
@@ -65,6 +77,10 @@ class GridFuser(Node):
         self.publish_rate = float(self.get_parameter('publish_rate').value)
         self.max_range = float(self.get_parameter('max_range').value)
         self.max_range_no_hit_epsilon = float(self.get_parameter('max_range_no_hit_epsilon').value)
+        self.lidar_range_min_override = float(self.get_parameter('lidar_range_min_override').value)
+        self.occupied_backfill_cells = int(self.get_parameter('occupied_backfill_cells').value)
+        self.protect_hit_cells_from_miss = bool(
+            self.get_parameter('protect_hit_cells_from_miss').value)
         self.rolling_window = bool(self.get_parameter('rolling_window').value)
         self.use_log_odds = bool(self.get_parameter('use_log_odds').value)
         self.prob_hit = float(self.get_parameter('prob_hit').value)
@@ -188,7 +204,11 @@ class GridFuser(Node):
         angles = scan.angle_min + np.arange(n, dtype=np.float32) * scan.angle_increment
         ranges_raw = np.array(scan.ranges, dtype=np.float32)
 
-        valid = np.isfinite(ranges_raw) & (ranges_raw >= float(scan.range_min)) & (ranges_raw <= r_cap)
+        # 자기감지(body/암 ~0.25m) 방어: SDF range_min(0.12m)보다 큰 하한을 적용.
+        # 미만 반사는 빔 통째로 제외한다. max_range 로 치환하면 자기반사 방향으로
+        # free ray 를 길게 파내어 실제 벽까지 지우므로 금지.
+        r_min_eff = max(float(scan.range_min), self.lidar_range_min_override)
+        valid = np.isfinite(ranges_raw) & (ranges_raw >= r_min_eff) & (ranges_raw <= r_cap)
         ranges_v = ranges_raw[valid]
         angles_v = angles[valid]
         n_valid = int(np.sum(valid))
@@ -215,6 +235,25 @@ class GridFuser(Node):
             & (ey_arr >= 0) & (ey_arr < self.height)
         )
 
+        # 폐색 보정 backfill: 히트 셀에서 빔 방향으로 N 셀 더 점유 표시.
+        # 벽 뒤는 관측 불가 영역이므로 free 로 남기지 않고 "두께 사전지식"을 넣는다.
+        bf_cells: List[Tuple[np.ndarray, np.ndarray]] = []
+        if self.occupied_backfill_cells > 0:
+            dxr, dyr = gx_f - tx, gy_f - ty
+            rn = np.hypot(dxr, dyr)
+            rn = np.where(rn < 1e-6, 1e-6, rn)
+            ux, uy = dxr / rn, dyr / rn
+            for k in range(1, self.occupied_backfill_cells + 1):
+                bx = ((gx_f + ux * (k * self.resolution) - self.origin_x)
+                      / self.resolution).astype(np.int32)
+                by = ((gy_f + uy * (k * self.resolution) - self.origin_y)
+                      / self.resolution).astype(np.int32)
+                ok = (valid_occ
+                      & (bx >= 0) & (bx < self.width)
+                      & (by >= 0) & (by < self.height))
+                if np.any(ok):
+                    bf_cells.append((bx[ok], by[ok]))
+
         max_steps = int(math.ceil(r_cap / self.resolution / 0.95)) + 2
         # t_vals 0.95→1.0: endpoint 직전 5% 구간 cell들도 l_miss 받도록 수정.
         # endpoint cell은 is_endpoint mask로 l_miss 제외, l_hit만 적용.
@@ -239,11 +278,26 @@ class GridFuser(Node):
             & ~is_dup
         )
 
+        # 같은 스캔에서 "어떤 빔이든" 끝난 셀(및 backfill 셀)은 l_miss 에서 제외.
+        # 비스듬한 입사에서 이웃 빔이 벽면 셀을 깎아내는 침식을 막는다.
+        if self.protect_hit_cells_from_miss:
+            hit_img = np.zeros((self.height, self.width), dtype=bool)
+            hit_img[ey_arr[valid_occ], ex_arr[valid_occ]] = True
+            for bx, by in bf_cells:
+                hit_img[by, bx] = True
+            flat_ib = in_bounds.ravel().copy()
+            sel = np.flatnonzero(flat_ib)
+            drop = hit_img[cy_all.ravel()[sel], cx_all.ravel()[sel]]
+            flat_ib[sel[drop]] = False
+            in_bounds = flat_ib.reshape(in_bounds.shape)
+
         # log-odds: miss 먼저 적용 후 hit (clamp와 순서 꼬임 방지)
         if self.use_log_odds:
             np.add.at(self.grid_log, (cy_all[in_bounds], cx_all[in_bounds]), self.l_miss)
             np.clip(self.grid_log, self.clamp_min, self.clamp_max, out=self.grid_log)
             np.add.at(self.grid_log, (ey_arr[valid_occ], ex_arr[valid_occ]), self.l_hit)
+            for bx, by in bf_cells:
+                np.add.at(self.grid_log, (by, bx), self.l_hit)
             np.clip(self.grid_log, self.clamp_min, self.clamp_max, out=self.grid_log)
         else:
             self.grid_int[cy_all[in_bounds], cx_all[in_bounds]] = self.free_value

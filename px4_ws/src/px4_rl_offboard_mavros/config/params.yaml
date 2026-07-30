@@ -36,9 +36,11 @@ rl_offboard_node:
     smooth_bspline_s: 0.0             # 0 = 보간(경유점 통과)
     smooth_bspline_output_points: 50
     wp_advance_search_window: 10
-    smooth_bspline_skip_if_few_wps: 3
-    shortcut_los_clearance_cells: 1   # astar_min_inflation_cells와 일치
-    astar_min_inflation_cells: 1      # × resolution ≥ 경로-벽 여유. 좁은 통로는 자동 fallback
+    smooth_bspline_skip_if_few_wps: 4  # 3차 B-spline 제어점 하한. 이 미만이면 스무딩 생략
+    shortcut_los_clearance_cells: 1   # astar_min_inflation_cells와 일치시킬 것
+    astar_min_inflation_cells: 1      # × resolution = 경로-벽 여유. 좁은 통로는 r을 0까지 자동 감소.
+                                      # 팽창은 여기 한 곳에서만 건다
+                                      # (grid_fuser publish_dilation_cells=0 — 중첩 시 통로 폐쇄)
 
     # 고도 유지
     enable_altitude_hold: true

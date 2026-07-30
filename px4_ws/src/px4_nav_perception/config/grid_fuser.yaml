@@ -12,13 +12,30 @@ grid_fuser:
     publish_rate: 5.0
     max_range: 10.0
     max_range_no_hit_epsilon: 0.08   # r≥max_range−eps 면 "오픈"으로 보고 끝 셀 occupied 안 찍음 (가짜 고리 방지)
+    lidar_range_min_override: 0.35   # 자기감지(body/암 ~0.25m) 방어. 미만 반사 빔은 제외.
+                                     # rl_offboard_node 의 동명 파라미터와 값 일치 필수
+                                     # (관측과 지도가 같은 LiDAR 하한을 보도록)
 
-    # Log-odds: 단일 빔 오표시(회전 중 motion distortion)를 여러 관측 누적으로 완화
+    # Log-odds: 단일 빔 오표시(회전 중 motion distortion)를 여러 관측 누적으로 완화.
+    #
+    # 아래 4개 값은 scripts/sweep_grid_params.py 로 도출했다. 주행 bag(완주/실패 2건)을
+    # 오프라인 재생하며 조합별로 격자를 재구성하고, obstacle_course.world 의 벽 16개를
+    # ground truth 로 삼아 두 지표로 채점한다:
+    #   · 관문 막힘  — 반드시 지나야 하는 통로(1.7m)가 A* 시점에서 닫히는 프레임 비율
+    #   · 벽 구멍    — 벽을 관통해 A* 가 지나갈 수 있는 행 수
+    # 두 지표는 상충한다. ρ = l_hit/|l_miss| 가 그 균형점을 결정한다.
     use_log_odds: true
-    prob_hit: 0.85        # l_hit ≈ +1.792
-    prob_miss: 0.35       # l_miss ≈ −0.619
-    clamp_min: -2.0
-    clamp_max: 3.0
+    prob_hit: 0.80        # l_hit  = ln(0.80/0.20) = +1.386
+    prob_miss: 0.40       # l_miss = ln(0.40/0.60) = −0.406   → ρ = 3.42
+                          #   ρ 는 "hit 1회가 miss 몇 회를 상쇄하는가". 회전 중 포즈 오차로
+                          #   생긴 유령 셀은 회전할 때만 hit 를 받으므로 ρ 로만 걸러진다.
+                          #   0.85/0.35 는 구멍이 5% 밖에 안 줄면서 막힘만 올라 0.80 이 무릎.
+    clamp_min: -2.0       # -4/-6 은 막힘이 같은데 구멍만 1.4~1.7배 → -2 가 최적
+    clamp_max: 6.0        # 벽 셀은 5회 hit 로 상한 포화하므로, 포화 후 침식 내성은
+                          #   prob_hit 이 아니라 이 값이 결정한다(스침 광선 14개까지 버팀).
+                          #   4→6 은 막힘 변화 없이 구멍만 -41%. 8/10 은 추가 이득 6%/1% 뿐인데
+                          #   유령 셀 제거가 1.5s → 2.0/2.5s 로 느려진다.
+                          # 필수 제약: clamp_max > ln(occ_thresh/(1-occ_thresh)) = 0.201
     occupied_thresh: 0.55 # 반드시 >0.5 (0.5면 미관측 셀이 전부 occupied → 맵 전체 검정·A* 실패)
     decay_rate: 0.001     # DOUBLE 필수 (0은 INT 파싱→declare_parameter 충돌). 감쇠 없음
     occupied_value: 100
@@ -28,4 +45,9 @@ grid_fuser:
     # rolling_window=false: 원점 = 남서 모서리, ±26.1m 대칭
     origin_x: -26.1
     origin_y: -26.1
-    publish_dilation_cells: 1   # occupied 발행 전 팽창 반경(셀), 8-connected, 0=비활성
+    publish_dilation_cells: 0   # occupied 발행 전 팽창 반경(셀), 8-connected, 0=비활성.
+                                # 팽창은 A* 쪽(params.yaml astar_min_inflation_cells) 한 곳에서만
+                                # 건다. 여기서 중첩하면 1.7m 통로의 A* 유효폭이 3셀로 줄어
+                                # 막힘이 상시화된다(스윕: 실패 주행 46~53%).
+                                # 실효 경로-벽 여유는 1셀=0.2m 가 아니다 — 점유 셀이 벽면을
+                                # 평균 0.1m 넘겨 덮으므로 실제 0.2~0.4m.

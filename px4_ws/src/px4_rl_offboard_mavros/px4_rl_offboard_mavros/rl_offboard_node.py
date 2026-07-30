@@ -111,7 +111,7 @@ class RLOffboardNode(Node):
             ("smooth_bspline_enabled",         True),
             ("smooth_bspline_s",               0.0),
             ("smooth_bspline_output_points",   50),
-            ("smooth_bspline_skip_if_few_wps", 3),
+            ("smooth_bspline_skip_if_few_wps", 4),
         ]
         for name, default in params:
             self.declare_parameter(name, default)
@@ -676,7 +676,10 @@ class RLOffboardNode(Node):
         path_xy: List[Tuple[float, float]],
     ) -> List[Tuple[float, float]]:
         """B-spline으로 경로 스무딩. 출력 점이 장애물 안이면 원본 반환."""
-        if not _SCIPY_OK or len(path_xy) < 4:
+        # 3차 B-spline 은 제어점 4개가 하한. 파라미터가 더 크면 그쪽을 따른다
+        # (호출부 게이트 smooth_bspline_skip_if_few_wps 와 단일 기준 유지).
+        min_wps = max(4, int(getattr(self, 'smooth_bspline_skip_if_few_wps', 4)))
+        if not _SCIPY_OK or len(path_xy) < min_wps:
             return path_xy
         try:
             xs = [p[0] for p in path_xy]
@@ -790,9 +793,14 @@ class RLOffboardNode(Node):
                     if path_ij:
                         path_xy = [self._ij_to_xy(ci, cj) for ci, cj in path_ij]
                         path_xy = self._shortcut_path(path_xy)           # LOS shortcutting
-                        skip_n = int(getattr(self, 'smooth_bspline_skip_if_few_wps', 3))
+                        skip_n = int(getattr(self, 'smooth_bspline_skip_if_few_wps', 4))
+                        smoothed = False
                         if self.smooth_bspline_enabled and len(path_xy) >= skip_n:
-                            path_xy = self._smooth_path_bspline(path_xy)  # B-spline smoothing
+                            sm = self._smooth_path_bspline(path_xy)      # B-spline smoothing
+                            # 기각(장애물 충돌·점 부족·예외) 시 입력 객체를 그대로 반환하므로
+                            # 동일성으로 "실제 적용 여부"를 판정한다.
+                            smoothed = sm is not path_xy
+                            path_xy = sm
                         # goal 좌표 고정 후 저장 (_path_lock으로 tick 스레드와 race 방지)
                         path_xy[-1] = (gx, gy)
                         with self._path_lock:
@@ -800,7 +808,7 @@ class RLOffboardNode(Node):
                             self._path_wp_idx = 0
                         self.get_logger().info(
                             f"A* succeeded: {len(path_xy)} wps "
-                            f"(smoothed={self.smooth_bspline_enabled}), "
+                            f"(smoothed={smoothed}), "
                             f"start_ij={s_ij}, goal_ij={g_ij}"
                         )
                         self._publish_path_msg()
