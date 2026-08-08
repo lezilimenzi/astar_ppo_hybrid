@@ -946,7 +946,7 @@ class RLOffboardNode(Node):
         planner_yaw_limit = float(getattr(self, 'planner_max_yaw_rate', self.max_yaw_rate))
         yaw_rate = max(-planner_yaw_limit, min(planner_yaw_limit, 2.0 * yaw_err))
         align_scale = max(0.0, 1.0 - abs(yaw_err) / (math.pi / 2))
-        v_cmd = min(self.v_max, 0.8 * gnorm) * align_scale
+        v_cmd = max(self.v_min, min(self.v_max, 0.8 * gnorm) * align_scale)
         vx = v_cmd * math.cos(target_yaw)
         vy = v_cmd * math.sin(target_yaw)
         return vx, vy, self._vz_correction(), yaw_rate
