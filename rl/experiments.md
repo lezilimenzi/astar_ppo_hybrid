@@ -19,12 +19,14 @@
 
 ### 배포 산출물
 
-`export_policy.py` 가 best_model 을 TorchScript + obs 정규화로 변환한다.
+`export_policy.py` 가 best_model 을 TorchScript + obs 정규화로 변환한다. **현행 배포본은 narrow passage 코스를 L-통로로 재설계한 뒤 재학습한 narrowL export**(§2.7)이며, 기존 `*_dt05` export 는 narrow passage 변경 *이전* 모델로 참고용으로만 보존한다.
 
-| rl/ export 디렉터리 | 변환 모델 | 배포 위치 (`px4_rl_offboard_mavros/models/`) | 설명 |
-|---------------------|-----------|----------------------------------------------|------|
-| `export_hybrid_dt05/` | `policy_c2dt05_ts.pt` | `policy_hybrid_ts.pt` / `obs_norm_hybrid.json` | **현행 배포 후보** — C2 hybrid, dt=0.05 정합 |
-| `export_ppo_dt05/` | `policy_ppo_c2dt05_ts.pt` | `policy_ppo_ts.pt` / `obs_norm_ppo.json` | PPO-only dt=0.05 (A\*/BFS 제거 비교용) |
+| rl/ export 디렉터리 | TorchScript / obs (디렉터리 내 파일) | 배포 위치 (`px4_rl_offboard_mavros/models/`) | 설명 |
+|---------------------|--------------------------------------|----------------------------------------------|------|
+| `export_hybrid_narrowL/` | `policy_hybrid_ts.pt` / `obs_norm_hybrid.json` | `policy_hybrid_ts.pt` / `obs_norm_hybrid.json` | **현행 배포** — C2 hybrid, dt=0.05, narrowL 재학습(§2.7) |
+| `export_ppo_narrowL/` | `policy_ppo_ts.pt` / `obs_norm_ppo.json` | `policy_ppo_ts.pt` / `obs_norm_ppo.json` | **현행 배포** — PPO-only narrowL 재학습 (A\* 만 제거, BFS-progress 보상 유지 — 비교용, §2.7) |
+| `export_hybrid_dt05/` | `policy_hybrid_ts.pt` / `obs_norm_hybrid.json` | (미배포) | **pre-narrowL** — narrow passage 변경 전 C2 hybrid dt=0.05 |
+| `export_ppo_dt05/` | `policy_ppo_ts.pt` / `obs_norm_ppo.json` | (미배포) | **pre-narrowL** — narrow passage 변경 전 PPO-only dt=0.05 |
 
 > 배포 모드는 `rl_offboard_node.py` 가 `policy_mode`(hybrid/ppo)로 선택한다([config/params.yaml](../px4_ws/src/px4_rl_offboard_mavros/config/params.yaml)). dt=0.3 10M reference 모델(구 `export_C2_10M` / `export_C2_PPOonly`)은 배포 동역학과 불일치하여 제거했고, 해당 학습 로그만 아카이브에 남는다(§2.4).
 
@@ -120,11 +122,29 @@ dt=0.05 환경에서 ent_coef 의 dt-scale(sqrt) 적용 여부 통제 비교(10 
 
 → sqrt scaling 은 std 발산은 막으나 **샘플효율 3배 희생**. 배포는 deterministic(평균) 추론이라 UNSCALED 의 std 폭주는 무해. 근본 원인은 **PUSH(boost)와 HOLD(base)에 필요한 크기가 다른데 한 스칼라로 묶인 것**. → **수정**: ① base 0.01→**0.004**(boost 0.03 유지, 비대칭), ② `EntCoefScheduleCallback` 에 **entropy 천장 가드**(entropy_loss<−2.5 면 floor 0.001 로 하드캡) 추가. (run: `hybrid_dt05`=unscaled, `hybrid_dt05_entsqrt`=sqrt, `hybrid_dt05_AB`=최종 A+B 수정. 비교 그림: `_archive_ablation/results/compare_hybrid_training.png`)
 
+### 2.7 Narrow passage 코스 L-통로 재설계 + 재학습 (narrowL, 10 M) — 현행 배포본
+
+- **변경**: 평가/커리큘럼의 `narrow_passage` 시나리오를 단순 "두 벽 사이 직선 통로(간격 1.2~1.5 m)" 에서 **ㄱ/ㄴ 자 L-통로(닫힌 관)** 로 재설계. L 통로만 자유공간으로 두고 나머지를 벽 5개로 감싸, 통로 안에서 **90° 코너를 꺾어** 반대쪽 끝까지 가야 도달. 통로 폭 **1.8~2.4 m**, 코너·끝점을 구석/가장자리로, `flip_x/flip_y` 로 4방향 랜덤화([`_reset_eval_narrow_passage`](env_2d_nav.py)). 직선 통로는 성공률이 포화되어 변별력이 없어, 코너 회피가 필요한 구조로 난이도를 높임.
+- **재학습**: 동일 보상(C2)·dt=0.05·비대칭 entropy(§2.6 A+B) 구성 그대로, hybrid / PPO-only 각각 **10 M from-scratch** 재학습.
+- **결과** (`best_training` weighted_score / 최종 10 M 평가):
+
+| run | weighted(best) | narrow_passage | obstacle_density_15 | obstacle_density_20 | course_l_s |
+|-----|:---:|:---:|:---:|:---:|:---:|
+| **`hybrid_10M_narrowL`** (배포) | **0.9176** | **100 %** | 91 % | 77 % | 99 % |
+| `PPOonly_10M_narrowL` (비교) | 0.7353 | 70 % | 67 % | 61 % | 98 % |
+
+> 위 시나리오 성공률은 각 로그의 **최종 10 M `[Eval …]`** 값. `weighted` 는 `ppo_uav2d_best_training_meta.json` 의 `weighted_score`.
+
+→ L-통로에서 **hybrid 100 % vs PPO-only 70 %** 로 격차가 §2.4(직선·랜덤 장애물)보다 크게 벌어짐 — A\* 전역 경로가 코너 너머 회피 방향을 센서 범위 밖에서 미리 제공하는 효과가 **구조적 통로에서 더 결정적**. 고밀도(d15/d20)에서도 hybrid 우위 유지. → hybrid 를 현행 배포본으로 채택.
+
+- **산출물**: `export_hybrid_narrowL/`, `export_ppo_narrowL/` (각 `policy_*_ts.pt` + `obs_norm_*.json`) → `px4_rl_offboard_mavros/models/` 에 배포(해시 일치 확인).
+- **로그·그림**: 학습 로그는 `PX4-Autopilot/rl/{hybrid,PPOonly}_10M_narrowL.log`, 비교 그림 스크립트 `PX4-Autopilot/rl/plot_compare_narrowL.py` (아카이브 미이관).
+
 ---
 
 ## 3. 실험 인덱스 (run → 로그·텐서보드)
 
-번호는 시간순. 로그는 `_archive_ablation/logs/<run>.log`, 텐서보드는 `_archive_ablation/tensorboard/<run>/` 에 있다.
+번호는 시간순. 로그는 `_archive_ablation/logs/<run>.log`, 텐서보드는 `_archive_ablation/tensorboard/<run>/` 에 있다. 단 narrowL run(7·8)의 로그는 아카이브 미이관 상태로 `PX4-Autopilot/rl/{hybrid,PPOonly}_10M_narrowL.log` 에 있다.
 
 | # | run | 내용 | 참조 |
 |---|-----|------|:---:|
@@ -134,6 +154,8 @@ dt=0.05 환경에서 ent_coef 의 dt-scale(sqrt) 적용 여부 통제 비교(10 
 | 4 | `hybrid_dt05_entsqrt` | dt-scale(sqrt) entropy 통제 비교 (base 0.004/boost 0.012) | §2.6 |
 | 5 | `PPOonly_dt05` | PPO-only dt=0.05 | §2.5 |
 | 6 | `hybrid_dt05_AB` | A+B 수정(비대칭 base 0.004/boost 0.03 + 천장 가드) | §2.6 |
+| 7 | `hybrid_10M_narrowL` | narrow passage L-통로 재설계 후 재학습 — **현행 배포** (weighted=0.918) | §2.7 |
+| 8 | `PPOonly_10M_narrowL` | 동 코스 PPO-only 재학습 (비교용, weighted=0.735) | §2.7 |
 
 - **reward ablation seeds**: §2.2~§2.3 채택(C2) 3-seed run 은 `tensorboard/ablation/hybrid_seed{7,42,123}/` + `logs/hybrid_seed{7,42,123}.log`. Case1~4·CK·E1·E2 의 seed 로그도 `logs/` 에 동봉.
 - **결과 표·그림**: `_archive_ablation/results/` (`ablation_comparison.md`, `ablation_norm_true_results.csv`, `compare_{hybrid,ppoonly}_training.png`).
