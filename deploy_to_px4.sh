@@ -30,11 +30,19 @@ echo "[INFO] PX4 = $PX4"
 
 have_rsync() { command -v rsync >/dev/null 2>&1; }
 
-# --- 1) px4_ws/src (ROS2 패키지) : mirror ---
+# --- 1) px4_ws/src (ROS2 패키지) : 복사 (삭제 없음) ---
+# --delete 는 쓰지 않는다: PX4 트리에서 직접 만든 파일(예: px4_sim_worlds 벤치마크 데이터)까지
+# 지워 버리기 때문(2026-10-13 실제 유실). 대신 PX4 쪽에만 있는 파일을 경고로 출력하고 판단은 사람이 한다.
 mkdir -p "$PX4/px4_ws/src"
 if have_rsync; then
-  rsync -a --delete --exclude="__pycache__/" --exclude="*.pyc" \
+  rsync -a --exclude="__pycache__/" --exclude="*.pyc" \
     "$REPO/px4_ws/src/" "$PX4/px4_ws/src/"
+  extra="$(rsync -an --delete --exclude="__pycache__/" --exclude="*.pyc" --itemize-changes \
+    "$REPO/px4_ws/src/" "$PX4/px4_ws/src/" | sed -n 's/^\*deleting  *//p')"
+  if [[ -n "$extra" ]]; then
+    echo "[WARN] repo 에 없고 PX4 트리에만 있는 항목 (삭제하지 않음, 필요 시 직접 정리):"
+    echo "$extra" | sed 's/^/  - /'
+  fi
 else
   cp -r "$REPO/px4_ws/src/." "$PX4/px4_ws/src/"
 fi
